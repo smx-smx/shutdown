@@ -50,6 +50,10 @@ public class ShutdownWatcher
     {
         switch (uMsg)
         {
+            case PInvoke.WM_CREATE:
+                // register block reason for later
+                PInvoke.ShutdownBlockReasonCreate(hWnd, "ShutdownTool running");
+                return PInvoke.DefWindowProc(hWnd, uMsg, wParam, lParam);
             case PInvoke.WM_CLOSE:
                 PInvoke.DestroyWindow(hWnd);
                 return new LRESULT(0);
@@ -67,8 +71,6 @@ public class ShutdownWatcher
                     return new LRESULT(1);
                 }
 
-                PInvoke.ShutdownBlockReasonCreate(hWnd, "ShutdownTool running");
-                Thread.Sleep(10000);
                 _actions.Run(_hWnd);
                 PInvoke.ShutdownBlockReasonDestroy(hWnd);
                 return new LRESULT(0);

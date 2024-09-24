@@ -27,8 +27,7 @@ namespace Shutdown
         {
             if (_hWND == null) return;
             PInvoke.ShutdownBlockReasonDestroy(_hWND.Value);
-            if (msg == null) return;
-            PInvoke.ShutdownBlockReasonCreate(_hWND.Value, msg);
+            PInvoke.ShutdownBlockReasonCreate(_hWND.Value, msg ?? string.Empty);
         }
     }
 }

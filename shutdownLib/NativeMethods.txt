@@ -24,6 +24,7 @@ WM_CLOSE
 WM_DESTROY
 WM_POWERBROADCAST
 WM_QUIT
+WM_CREATE
 DestroyWindow
 PostQuitMessage
 DefWindowProcW

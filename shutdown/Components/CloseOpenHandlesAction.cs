@@ -274,7 +274,7 @@ namespace Shutdown.Components
 
 
             var ptr = new TypedMemoryHandle<SYSTEM_HANDLE_INFORMATION_EX>(buf);
-            if (ptr.Value.Address != buf.Address) throw new InvalidOperationException();
+            if (ptr.Value.Address != buf.Address) throw new InvalidOperationException("buffer pointer address mismatch");
             var numHandles = ptr.Value.NumberOfHandles;
             var handles = ptr.Value.Handles;
 
