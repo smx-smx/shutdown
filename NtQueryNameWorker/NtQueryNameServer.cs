@@ -35,30 +35,37 @@ namespace worker
             using var pipeIn = new AnonymousPipeClientStream(PipeDirection.In, args[0]);
             using var pipeOut = new AnonymousPipeClientStream(PipeDirection.Out, args[1]);
 
-            using var sr = new StreamReader(pipeIn);
-            using var sw = new StreamWriter(pipeOut);
-            sw.WriteLine("."); // welcome banner
-            sw.Flush();
-
-            var itmSize = Unsafe.SizeOf<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>();
-            while (true)
+            try
             {
-                var buf = new byte[itmSize];
-                if (pipeIn.Read(buf) != itmSize) break;
-
-                var itm = buf.AsSpan().Cast<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>()[0];
-                var handle = new SafeNtHandle(itm.HandleValue, false);
-                string? name;
-                try
-                {
-                    name = Helpers.GetHandleName(thisProc, handle, (uint)itm.UniqueProcessId);
-                }
-                catch (InvalidOperationException)
-                {
-                    continue;
-                }
-                sw.WriteLine(name);
+                using var sr = new StreamReader(pipeIn);
+                using var sw = new StreamWriter(pipeOut);
+                sw.WriteLine("."); // welcome banner
                 sw.Flush();
+
+                var itmSize = Unsafe.SizeOf<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>();
+                while (true)
+                {
+                    var buf = new byte[itmSize];
+                    if (pipeIn.Read(buf) != itmSize) break;
+
+                    var itm = buf.AsSpan().Cast<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>()[0];
+                    var handle = new SafeNtHandle(itm.HandleValue, false);
+                    string? name;
+                    try
+                    {
+                        name = Helpers.GetHandleName(thisProc, handle, (uint)itm.UniqueProcessId);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        continue;
+                    }
+                    sw.WriteLine(name);
+                    sw.Flush();
+                }
+            }
+            catch (IOException)
+            {
+                Console.Error.WriteLine("Got IO Exception, aborting");
             }
             return 0;
         }

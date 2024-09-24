@@ -123,7 +123,7 @@ class ShutdownTool
 #if DEBUG
         if (!WindowsServiceHelpers.IsWindowsService())
         {
-            Helpers.AllocConsole();
+            //Helpers.AllocConsole();
         }
 #endif
 
@@ -195,6 +195,7 @@ class ShutdownTool
             if (args.Length > 0 && args[0] == "-now")
             {
                 host.Services.GetRequiredService<ShutDownActions>().Run();
+                Console.WriteLine("- done");
                 return 0;
             }
 

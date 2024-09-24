@@ -21,7 +21,7 @@ namespace ShutdownLib
         public unsafe void Free(nint ptr)
         {
             PInvoke.WTSFreeMemory(ptr.ToPointer());
-        }
+        }   
 
         public nint Realloc(nint ptr, nuint size)
         {

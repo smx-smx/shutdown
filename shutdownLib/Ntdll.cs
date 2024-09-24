@@ -21,6 +21,17 @@ using System.Reflection;
 using Smx.SharpIO.Memory;
 using System.Runtime.CompilerServices;
 using Windows.Win32.Security;
+using Windows.Wdk.System.Threading;
+using Windows.Win32.System.Kernel;
+using Windows.Win32.System.Threading;
+using Windows.Win32.System.Diagnostics.Debug;
+
+
+#if TARGET_64BIT
+using nint_t = System.Int64;
+#else
+using nint_t = System.Int32;
+#endif
 
 namespace ShutdownLib
 {
@@ -38,7 +49,8 @@ namespace ShutdownLib
         STATUS_MORE_ENTRIES = 0x105,
         STATUS_BUFFER_TOO_SMALL = 0xC0000023,
         STATUS_INFO_LENGTH_MISMATCH = 0xC0000004,
-        STATUS_ACCESS_VIOLATION = 0xC0000005
+        STATUS_ACCESS_VIOLATION = 0xC0000005,
+        STATUS_ACCESS_DENIED = 0xC0000022
     }
 
     public enum SYSTEM_INFORMATION_CLASS : uint
@@ -234,6 +246,57 @@ namespace ShutdownLib
         public IEnumerable<TypedPointer<OBJECT_TYPE_INFORMATION>> Types => GetTypesEnumerator(this.ToPointer());
     }
 
+    public struct CLIENT_ID
+    {
+        public HANDLE UniqueProcess;
+        public HANDLE UniqueThread;
+    }
+
+    public struct THREAD_BASIC_INFORMATION
+    {
+        public NTSTATUS ExitStatus;
+        public TypedPointer<TEB> TebBaseAddress;
+        public CLIENT_ID ClientId;
+        public nint AffinityMask;
+        public uint Priority;
+        public uint BasePriority;
+    }
+
+    public unsafe struct TEB
+    {
+        public NT_TIB NtTib;
+        public nint EnvironmentPointer;
+        public CLIENT_ID ClientId;
+        public nint ActiveRpcHandle;
+        public nint ThreadLocalStoragePointer;
+        public TypedPointer<PEB_unmanaged> ProcessEnvironmentBlock;
+        public uint LastErrorValue;
+        public uint CountOfOwnedCriticalSections;
+        public nint CsrClientThread;
+        public nint Win32ThreadInfo;
+        public fixed uint User32Reserved[26];
+        public fixed uint UserReserved[5];
+        public nint WOW32Reserved;
+        public uint CurrentLocale;
+        public uint FpSoftwareStatusRegister;
+        /** we can stop here, we don't really need the rest */
+    }
+
+    public struct INITIAL_TEB
+    {
+        public nint OldStackBase;
+        public nint OldStackLimit;
+        public nint StackBase;
+        public nint StackLimit;
+        public nint StackAllocationBase;
+    }
+
+    public enum NtSyscall : uint
+    {
+        NtClose = 0xF,
+        NtQueryObject = 0x10
+    }
+
     public static class Ntdll
     {
         public static bool NT_SUCCESS(NtStatusCode ntStatus)
@@ -310,6 +373,36 @@ namespace ShutdownLib
             nint ProcessInformation,
             uint ProcessInformationLength,
             out uint ReturnLength
+        );
+
+        [DllImport("ntdll")]
+        public static extern NtStatusCode NtQueryInformationThread(
+            HANDLE ThreadHandle,
+            THREADINFOCLASS ThreadInformationClass,
+            nint ThreadInformation,
+            uint ThreadInformationLength,
+            out uint ReturnLength
+        );
+
+        [DllImport("ntdll")]
+        public static extern NtStatusCode NtCreateThread(
+            out HANDLE ThreadHandle,
+            THREAD_ACCESS_RIGHTS DesiredAccess,
+            TypedPointer<OBJECT_ATTRIBUTES> ObjectAttributes,
+            HANDLE ProcessHandle,
+            out CLIENT_ID ClientId,
+            CONTEXT ThreadContext,
+            INITIAL_TEB InitialTeb,
+            BOOLEAN CreateSuspended
+        );
+
+        [DllImport("ntdll")]
+        public static extern void RtlInitializeContext(
+            HANDLE ProcessHandle,
+            ref CONTEXT ThreadContext,
+            nint ThreadStartParam,
+            nint ThreadStartAddress,
+            nint ThreadStackAddress
         );
     }
 }

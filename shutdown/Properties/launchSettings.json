@@ -6,10 +6,12 @@
     },
     "shutdown_now": {
       "commandName": "Project",
-      "commandLineArgs": "-now"
+      "commandLineArgs": "-now",
+      "nativeDebugging": true
     },
     "shutdown": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "nativeDebugging": true
     }
   }
 }

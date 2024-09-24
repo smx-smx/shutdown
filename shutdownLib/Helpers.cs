@@ -302,7 +302,7 @@ namespace ShutdownLib
             using var buf = Helpers.NtCallWithGrowableBuffer((buf) =>
             {
                 status = NtQueryObject(
-                    new HANDLE(dupHandle.DangerousGetHandle()),
+                    dupHandle.ToHandle(),
                     OBJECT_INFORMATION_CLASS.ObjectNameInformation,
                     buf.Address, (uint)buf.Size, out var objNameLength);
                 return status;

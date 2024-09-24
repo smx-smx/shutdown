@@ -40,6 +40,7 @@ namespace Shutdown.Components
 
     public class CloseOpenHandlesParams
     {
+        public bool DryRun { get; set; } = false;
         public ICollection<CloseOpenHandlesItem> Volumes { get; set; } = new List<CloseOpenHandlesItem>();
     }
 
@@ -159,14 +160,20 @@ namespace Shutdown.Components
 
         private readonly CloseOpenHandlesParams _volumes;
         private readonly ILogger<CloseOpenHandlesAction> _logger;
+        private readonly INtQueryNameWorker _worker;
 
         public CloseOpenHandlesAction(
             CloseOpenHandlesParams opts,
-            ILogger<CloseOpenHandlesAction> logger
+            ILogger<CloseOpenHandlesAction> logger,
+            bool useNative = false
         )
         {
             _volumes = opts;
             _logger = logger;
+            _worker = useNative
+                // NOTE: native worker is experimental
+                ? new NtQueryNameNative()
+                : new NtQueryNameIpc();
         }
 
         private unsafe string? FileHandleGetName(SafeHandle handle)
@@ -208,9 +215,9 @@ namespace Shutdown.Components
                     do
                     {
                         if (!NT_SUCCESS(NtDuplicateObject(
-                            new HANDLE(hProc.DangerousGetHandle()),
+                            hProc.ToHandle(),
                             handle,
-                            new HANDLE(thisProc.DangerousGetHandle()),
+                            thisProc.ToHandle(),
                             out syncHandle,
                             0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_SAME_ACCESS
                         )))
@@ -229,9 +236,9 @@ namespace Shutdown.Components
                 }
 
                 if (!NT_SUCCESS(NtDuplicateObject(
-                    new HANDLE(hProc.DangerousGetHandle()),
+                    hProc.ToHandle(),
                     handle,
-                    new HANDLE(thisProc.DangerousGetHandle()),
+                    thisProc.ToHandle(),
                     out dupHandle,
                     0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_CLOSE_SOURCE
                 )))
@@ -271,25 +278,6 @@ namespace Shutdown.Components
             var numHandles = ptr.Value.NumberOfHandles;
             var handles = ptr.Value.Handles;
 
-            var workerAvailable = new AutoResetEvent(false);
-
-            var workersInfo = Enumerable.Range(0, 2)
-                .Select(_ =>
-                {
-                    var w = new NtQueryNameWorker();
-                    w.OnReady += (w) =>
-                    {
-                        workerAvailable.Set();
-                    };
-                    var startTask = w.StartAsync();
-                    return (w, startTask);
-                })
-                .ToArray();
-
-            Task.WaitAll(workersInfo.Select(x => x.startTask).ToArray());
-
-            var workers = workersInfo.Select(x => x.w).ToArray();
-
 
             for (var i = 0; i < numHandles; i++)
             {
@@ -301,24 +289,22 @@ namespace Shutdown.Components
 
                 var safeHandle = new SafeNtHandle(h.HandleValue, false);
 
-                string? name;
-                while (true)
-                {
-                    var avail = workers.FirstOrDefault(w => !w.IsBusy());
-                    if (avail == null)
-                    {
-                        workerAvailable.WaitOne(200);
-                        continue;
-                    }
-                    name = avail.GetName(handles, i);
-                    break;
-                }
-
+                var name = _worker.GetName(handles, i);
                 if (name == null) continue;
+                //_logger.LogDebug(name);
+
                 if (!name.StartsWith(volumePath)) continue;
 
-                _logger.LogDebug($"{h.UniqueProcessId}: {h.ObjectTypeIndex} - {h.HandleValue:X}");
-                _logger.LogDebug(name);
+                var dryPrefix = _volumes.DryRun ? "[DRY] " : "";
+
+                _logger.LogDebug($"{dryPrefix}{h.UniqueProcessId}: {h.ObjectTypeIndex} - {h.HandleValue:X}");
+
+
+
+                if (_volumes.DryRun)
+                {
+                    continue;
+                }
 
                 var flush = flushObjects && h.ObjectTypeIndex == ObjectTypeFile.TypeIndex;
                 CloseHandle(
@@ -327,15 +313,11 @@ namespace Shutdown.Components
                     (uint)h.UniqueProcessId,
                     flush);
             }
-
-            foreach (var w in workers)
-            {
-                w.Dispose();
-            }
         }
 
         public void Execute(ShutdownState state)
         {
+            _worker.Start();
             foreach (var vol in _volumes.Volumes)
             {
                 _logger.LogInformation($"Closing handles for volume: {vol.Name}");

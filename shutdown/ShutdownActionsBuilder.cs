@@ -23,7 +23,6 @@ namespace Shutdown
 
         private ICollection<CloseOpenHandlesItem> _closeHandlesList;
         private HashSet<string> _dismountVolumesList;
-        private Dictionary<int, ShutdownVmOptions> _shutdownVmList;
 
 
         private ShutdownActionFactories _factories;
@@ -39,7 +38,6 @@ namespace Shutdown
 
             _closeHandlesList = new List<CloseOpenHandlesItem>();
             _dismountVolumesList = new HashSet<string>();
-            _shutdownVmList = new Dictionary<int, ShutdownVmOptions>();
         }
 
         private void AddVolume(string volumeName, VolumeOptions opts)
@@ -66,7 +64,7 @@ namespace Shutdown
             if (_options.VirtualMachines == null) return;
             var shutdownVms = _factories.shutdownVms.Create(new ShutdownVmParams
             {
-                DryRun = _options.VirtualMachines.DryRun,
+                DryRun = _options.DryRun,
                 DefaultOptions = ShutdownVmParams.DefaultVmOptions,
                 Items = _options.VirtualMachines.Items
             });
@@ -84,6 +82,7 @@ namespace Shutdown
 
             var closeHandles = _factories.closeOpenHandles.Create(new CloseOpenHandlesParams
             {
+                DryRun = _options.DryRun,
                 Volumes = _closeHandlesList
             });
             var dismountVolumes = _factories.dismountVolumes.Create(_dismountVolumesList);

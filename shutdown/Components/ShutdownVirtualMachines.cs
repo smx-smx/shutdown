@@ -120,7 +120,7 @@ namespace Shutdown.Components
 
             var info = MemoryHGlobal.Alloc<PROCESS_BASIC_INFORMATION>();
             var status = NtQueryInformationProcess(
-                new HANDLE(hProc.DangerousGetHandle()),
+                hProc.ToHandle(),
                 (uint)PROCESS_INFORMATION_CLASS.ProcessBasicInformation,
                 info.Address, (uint)Unsafe.SizeOf<PROCESS_BASIC_INFORMATION>(),
                 out var returnLength
@@ -311,6 +311,7 @@ namespace Shutdown.Components
             var vmProc = vm.VmProcess;
 
             if (vmProc.HasExited) return false;
+            if (_opts.DryRun) return true;
 
             //var vmx = ParseVmx(vmxFilePath);
             //if(!vmx.TryGetValue("displayName", out var vmDisplayName)){

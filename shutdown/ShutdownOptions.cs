@@ -36,7 +36,7 @@ namespace Shutdown
         Shutdown,
         Kill
     }
-    
+
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum VmShutdownMode
     {
@@ -69,13 +69,13 @@ namespace Shutdown
 
     public class VirtualMachineOptions
     {
-        public bool DryRun { get; set; } = false;
         public ShutdownVmOptions? Default { get; set; }
         public IList<ShutdownVmOptions> Items { get; set; } = new List<ShutdownVmOptions>();
     }
 
     public class ShutdownOptions
     {
+        public bool DryRun { get; set; } = false;
         public Dictionary<string, VolumeOptions> Volumes { get; set; } = new Dictionary<string, VolumeOptions>();
         public VirtualMachineOptions? VirtualMachines { get; set; }
     }
