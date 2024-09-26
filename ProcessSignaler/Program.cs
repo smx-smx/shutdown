@@ -6,26 +6,26 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 #endregion
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using Windows.Win32;
 
 uint pid = 0;
 if (args.Length < 1
-	|| !uint.TryParse(args[0], out pid)
-	|| pid == 0)
+    || !uint.TryParse(args[0], out pid)
+    || pid == 0)
 {
-	Console.Error.WriteLine("Usage: [pid]");
-	Environment.Exit(1);
+    Console.Error.WriteLine("Usage: [pid]");
+    Environment.Exit(1);
 }
 
 uint signal = args.Length > 1
-	? uint.Parse(args[1])
-	: PInvoke.CTRL_C_EVENT;
+    ? uint.Parse(args[1])
+    : PInvoke.CTRL_C_EVENT;
 
 PInvoke.FreeConsole();
 if (!PInvoke.AttachConsole(pid))
 {
-	throw new Win32Exception();
+    throw new Win32Exception();
 }
 // Taken from MedallionShell:
 // disable signal handling for our program
@@ -33,10 +33,11 @@ if (!PInvoke.AttachConsole(pid))
 // "Calling SetConsoleCtrlHandler with the NULL and TRUE arguments causes the calling process to ignore CTRL+C signals"
 if (!PInvoke.SetConsoleCtrlHandler(null, true))
 {
-	throw new Win32Exception();
+    throw new Win32Exception();
 }
 
-if (!PInvoke.GenerateConsoleCtrlEvent(signal, pid))
+// special group 0: all process attached to the console
+if (!PInvoke.GenerateConsoleCtrlEvent(signal, 0))
 {
-	throw new Win32Exception();
+    throw new Win32Exception();
 }
