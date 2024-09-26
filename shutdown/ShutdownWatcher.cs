@@ -25,8 +25,41 @@ using ShutdownLib;
 using System.Diagnostics;
 using System.IO.Pipes;
 
-namespace Shutdown
+namespace Shutdown;
+
+public enum ShutdownMode
 {
+    /// <summary>
+    /// Pre-Shutdown actions
+    /// </summary>
+    PreShutdown,
+    /// <summary>
+    /// Shutdown actions
+    /// </summary>
+    Shutdown
+}
+
+public class ShutdownWatcherFactory
+{
+    private readonly ShutDownActions _actions;
+    private ILoggerFactory _logFactory;
+
+    public ShutdownWatcherFactory(
+        ShutDownActions actions,
+        ILoggerFactory factory
+    )
+    {
+        _actions = actions;
+        _logFactory = factory;
+    }
+
+    public ShutdownWatcher CreateWatcher(ShutdownMode mode)
+    {
+        return new ShutdownWatcher(
+            _actions,
+            _logFactory.CreateLogger<ShutdownWatcher>(),
+            mode);
+    }
 }
 
 public class ShutdownWatcher
@@ -34,12 +67,15 @@ public class ShutdownWatcher
     private readonly ShutDownActions _actions;
     private readonly ILogger<ShutdownWatcher> _logger;
     private FreeLibrarySafeHandle _hInstance;
+    private readonly ShutdownMode _mode;
 
     public ShutdownWatcher(
         ShutDownActions actions,
-        ILogger<ShutdownWatcher> logger
+        ILogger<ShutdownWatcher> logger,
+        ShutdownMode mode
     )
     {
+        _mode = mode;
         _actions = actions;
         _logger = logger;
         _hInstance = PInvoke.GetModuleHandle("");
@@ -71,7 +107,7 @@ public class ShutdownWatcher
                     return new LRESULT(1);
                 }
 
-                _actions.Run(_hWnd);
+                _actions.Run(_mode, _hWnd);
                 PInvoke.ShutdownBlockReasonDestroy(hWnd);
                 return new LRESULT(0);
 #if false
@@ -173,17 +209,31 @@ public class ShutdownWatcher
 
     private void SetShutdownPriority()
     {
-        /**
-         * The priority must be the lowest possible so that if there is unsaved work and the user cancels the shutdown,
-         * the iSCSI drive won't be unmounted.
-         * Still, we must run BEFORE VMWare does, or it will try to suspend running VMs in arbitrary order,
-         * thus breaking the ones that depend on TrueNAS (they run off a network share exposed by the TrueNAS VM itself)
-         * 
-         * The VMWare priority is hardcoded in vmware-vmx's WinMain method
-         **/
-        if (!PInvoke.SetProcessShutdownParameters(VMWARE_SHUTDOWN_PRIO + 1, 0))
+        if (_mode == ShutdownMode.Shutdown)
         {
-            throw new Win32Exception();
+            _logger.LogInformation("Setting shutdown parameter for normal shutdown");
+            /**
+             * The priority must be the lowest possible so that if there is unsaved work and the user cancels the shutdown,
+             * the iSCSI drive won't be unmounted.
+             * Still, we must run BEFORE VMWare does, or it will try to suspend running VMs in arbitrary order,
+             * thus breaking the ones that depend on TrueNAS (they run off a network share exposed by the TrueNAS VM itself)
+             * 
+             * The VMWare priority is hardcoded in vmware-vmx's WinMain method
+             **/
+            if (!PInvoke.SetProcessShutdownParameters(VMWARE_SHUTDOWN_PRIO + 1, 0))
+            {
+                throw new Win32Exception();
+            }
+        } else
+        {
+            _logger.LogInformation("Setting shutdown parameter for pre-shutdown");
+            /**
+             * Set maximum shutdown priority
+             **/
+            if (!PInvoke.SetProcessShutdownParameters(0x3FF, 0))
+            {
+                throw new Win32Exception();
+            }
         }
     }
 

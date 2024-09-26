@@ -12,6 +12,16 @@
     "shutdown": {
       "commandName": "Project",
       "nativeDebugging": true
+    },
+    "shutdown_pre_now": {
+      "commandName": "Project",
+      "commandLineArgs": "-pre -now",
+      "nativeDebugging": false
+    },
+    "shutdown_pre": {
+      "commandName": "Project",
+      "commandLineArgs": "-pre",
+      "nativeDebugging": true
     }
   }
 }

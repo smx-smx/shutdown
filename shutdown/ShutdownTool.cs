@@ -24,6 +24,7 @@ using Smx.Winter;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -100,6 +101,18 @@ class ShutdownTool
         }
     }
 
+    private static bool TryTake(IEnumerator<string> it, [MaybeNullWhen(false)] out string arg)
+    {
+        if (!it.MoveNext())
+        {
+            arg = null;
+            return false;
+        }
+
+        arg = it.Current;
+        return true;
+    }
+
     public int Run(string[] args)
     {
         var ownDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
@@ -153,6 +166,31 @@ class ShutdownTool
             throw new InvalidOperationException($"Failed to read configuration from {settingsPath}");
         }
 
+
+        var args_it = args.GetEnumerator();
+        var runNow = false;
+        var shutdownMode = ShutdownMode.Shutdown;
+
+        while (args_it.MoveNext())
+        {
+            var res = true;
+            var arg = args_it.Current;
+            switch (arg)
+            {
+                case "-now":
+                    runNow = true;
+                    break;
+                case "-pre":
+                    shutdownMode = ShutdownMode.PreShutdown;
+                    break;
+            }
+
+            if (!res)
+            {
+                throw new ArgumentException("Invalid program arguments");
+            }
+        }
+
         LoggerProviderOptions.RegisterProviderOptions<EventLogSettings, EventLogLoggerProvider>(builder.Services);
         /*builder.Services.Configure<ShutdownOptions>(
             builder.Configuration.GetSection("ShutdownSettings"),
@@ -163,8 +201,16 @@ class ShutdownTool
         builder.Services.AddSingleton(settings);
 
         builder.Services.AddSingleton<ShutDownActions>();
-        builder.Services.AddSingleton<ShutdownWatcher>();
-        builder.Services.AddHostedService<ShutdownService>();
+        builder.Services.AddSingleton<ShutdownWatcherFactory>();
+        if (!runNow)
+        {
+            builder.Services.AddHostedService((services) =>
+            {
+                var watcherFactory = services.GetRequiredService<ShutdownWatcherFactory>();
+                var watcher = watcherFactory.CreateWatcher(shutdownMode);
+                return new ShutdownWatcherService(watcher);
+            });
+        }
 
         builder.Services.AddSingleton<DismountVolumesFactory>();
         builder.Services.AddSingleton<CloseOpenHandlesFactory>();
@@ -179,6 +225,8 @@ class ShutdownTool
         var mainLogger = host.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger<ShutdownTool>();
 
+
+
         foreach (var arg in args)
         {
             mainLogger.LogDebug($"=> {arg}");
@@ -191,18 +239,18 @@ class ShutdownTool
         using var systemToken = ElevationService.ImpersonateSystem();
         Helpers.EnablePrivilege(PInvoke.SE_TCB_NAME); // for WinSta impersonation
 
+
         try
         {
-            if (args.Length > 0 && args[0] == "-now")
+            if (runNow)
             {
-                host.Services.GetRequiredService<ShutDownActions>().Run();
+                host.Services.GetRequiredService<ShutDownActions>().Run(shutdownMode);
                 Console.WriteLine("- done");
-                return 0;
+            } else
+            {
+                host.Run();
             }
-
-            host.Run();
-        }
-        catch (Exception ex)
+        } catch (Exception ex)
         {
             mainLogger.LogError(ex, "Unhandled exception");
             return 1;

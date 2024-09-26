@@ -113,11 +113,16 @@ namespace Shutdown
             }
         }
 
-        public ICollection<IAction> Build()
+        public ICollection<IAction> Build(ShutdownMode mode)
         {
-            BuildVolumes();
-            BuildVirtualMachines();
-            BuildProcessKiller();
+            if (mode == ShutdownMode.PreShutdown)
+            {
+                BuildProcessKiller();
+            } else
+            {
+                BuildVolumes();
+                BuildVirtualMachines();
+            }
             return _actions;
         }
     }

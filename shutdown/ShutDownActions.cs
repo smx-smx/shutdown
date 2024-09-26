@@ -33,16 +33,16 @@ namespace Shutdown
             _factories = factories;
         }
 
-        private void RunActions()
+        private void RunActions(ShutdownMode mode)
         {
-            var actions = new ShutdownActionsBuilder(_options, _factories).Build();
+            var actions = new ShutdownActionsBuilder(_options, _factories).Build(mode);
             foreach (var act in actions)
             {
                 act.Execute(_state);
             }
         }
 
-        public void Run(HWND? hWND = null)
+        public void Run(ShutdownMode mode, HWND? hWND = null)
         {
             _state = new ShutdownState(hWND);
             _sema.Wait();
@@ -50,9 +50,8 @@ namespace Shutdown
             {
                 if (_hasRun) return;
                 _hasRun = true;
-                RunActions();
-            }
-            finally
+                RunActions(mode);
+            } finally
             {
                 _sema.Release();
             }

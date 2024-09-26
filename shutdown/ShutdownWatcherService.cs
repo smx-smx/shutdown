@@ -17,11 +17,11 @@ using System.Threading.Tasks;
 
 namespace Shutdown
 {
-    public class ShutdownService : IHostedService, IDisposable
+    public class ShutdownWatcherService : IHostedService, IDisposable
     {
         private readonly ShutdownWatcher _watcher;
 
-        public ShutdownService(ShutdownWatcher watcher)
+        public ShutdownWatcherService(ShutdownWatcher watcher)
         {
             _watcher = watcher;
         }
