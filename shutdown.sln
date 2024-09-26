@@ -9,6 +9,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "shutdown", "shutdown\shutdo
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "shutdownLib", "shutdownLib\shutdownLib.csproj", "{8D60BAFF-BC87-4D16-888E-7B5BED865CB5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProcessSignaler", "ProcessSignaler\ProcessSignaler.csproj", "{290DE932-A089-4746-8E3F-A4BE84079AFE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{8D60BAFF-BC87-4D16-888E-7B5BED865CB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8D60BAFF-BC87-4D16-888E-7B5BED865CB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8D60BAFF-BC87-4D16-888E-7B5BED865CB5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{290DE932-A089-4746-8E3F-A4BE84079AFE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{290DE932-A089-4746-8E3F-A4BE84079AFE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{290DE932-A089-4746-8E3F-A4BE84079AFE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{290DE932-A089-4746-8E3F-A4BE84079AFE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

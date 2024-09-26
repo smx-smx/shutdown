@@ -50,6 +50,17 @@ namespace Shutdown
         public CloseHandlesOptions? CloseHandles { get; set; }
     }
 
+    public class KillProcessOptions
+    {
+        public uint TimeoutSeconds { get; set; } = 60;
+    }
+
+    public class KillProcessesOptions : ActionOptions
+    {
+        public bool? DryRun { get; set; }
+        public Dictionary<string, KillProcessOptions> Processes { get; set; } = new Dictionary<string, KillProcessOptions>();
+    }
+
     public class ShutdownVmOptions
     {
         /// <summary>
@@ -78,6 +89,8 @@ namespace Shutdown
         public bool DryRun { get; set; } = false;
         public Dictionary<string, VolumeOptions> Volumes { get; set; } = new Dictionary<string, VolumeOptions>();
         public VirtualMachineOptions? VirtualMachines { get; set; }
+        public KillProcessesOptions? KillProcesses { get; set; }
+
     }
 
     public class ShutdownSettingsRoot

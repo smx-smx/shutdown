@@ -169,6 +169,7 @@ class ShutdownTool
         builder.Services.AddSingleton<DismountVolumesFactory>();
         builder.Services.AddSingleton<CloseOpenHandlesFactory>();
         builder.Services.AddSingleton<ShutdownVirtualMachinesFactory>();
+        builder.Services.AddSingleton<ProcessKillerFactory>();
 
 
         builder.Services.AddSingleton<ShutdownActionFactories>();

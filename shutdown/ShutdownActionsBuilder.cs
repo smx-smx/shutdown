@@ -91,11 +91,33 @@ namespace Shutdown
             _actions.Add(dismountVolumes);
         }
 
+        private void BuildProcessKiller()
+        {
+            var enable = _options.KillProcesses?.Enable ?? true;
+            if (enable)
+            {
+                var opts = new ProcessKillerParams
+                {
+                    ProcessSettings = _options.KillProcesses?.Processes.ToDictionary(
+                        p => p.Key,
+                        p => new PerProcessSettings
+                        {
+                            MainModuleName = p.Key,
+                            Timeout = TimeSpan.FromSeconds(p.Value.TimeoutSeconds)
+                        }
+                    ) ?? new Dictionary<string, PerProcessSettings>(),
+                    DryRun = _options.KillProcesses?.DryRun.GetValueOrDefault(_options.DryRun) ?? _options.DryRun
+                };
+                var processKiller = _factories.processKiller.Create(opts);
+                _actions.Add(processKiller);
+            }
+        }
 
         public ICollection<IAction> Build()
         {
             BuildVolumes();
             BuildVirtualMachines();
+            BuildProcessKiller();
             return _actions;
         }
     }

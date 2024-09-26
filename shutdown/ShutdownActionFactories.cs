@@ -17,7 +17,8 @@ namespace Shutdown
     public record ShutdownActionFactories(
         CloseOpenHandlesFactory closeOpenHandles,
         DismountVolumesFactory dismountVolumes,
-        ShutdownVirtualMachinesFactory shutdownVms
+        ShutdownVirtualMachinesFactory shutdownVms,
+        ProcessKillerFactory processKiller
     )
     { }
 }
