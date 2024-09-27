@@ -97,10 +97,28 @@ public class ShutdownWatcher
                 PInvoke.PostQuitMessage(0);
                 return new LRESULT(0);
             case PInvoke.WM_QUERYENDSESSION:
+                if (_mode == ShutdownMode.PreShutdown)
+                {
+                    Task.Run(() =>
+                    {
+                        _actions.Run(_mode, _hWnd);
+                        _logger.LogInformation("Pre-Shutdown completed");
+                        // we can't clear the shutdown block reason from here, since we're in another thread
+                        // let's be brutal, for now
+                        Environment.Exit(0);
+                    });
+                    // Doesn't block shutdown, but stop signal propagation (undocumented?)
+                    // This way Notepad, MSPaint, etc. won't know we're shutting down and we can end them properly
+                    return new LRESULT(0);
+                }
                 // Don't block shutdown. we'll postpone it in WM_ENDSESSION
                 // (actually we can't block shutdown anymore since Windows Vista)
                 return new LRESULT(1);
             case PInvoke.WM_ENDSESSION:
+                if (_mode == ShutdownMode.PreShutdown)
+                {
+                    return new LRESULT(1);
+                }
                 if (wParam == 0)
                 {
                     // not processed

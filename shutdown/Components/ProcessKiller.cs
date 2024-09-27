@@ -6,7 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 #endregion
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using ShutdownLib;
 using System;
 using System.Collections.Generic;
@@ -197,8 +197,7 @@ public class ProcessKiller : IAction
                         return false;
                     }
                     return true;
-                }
-                else
+                } else
                 {
                     throw new Win32Exception();
                 }
@@ -293,6 +292,7 @@ public class ProcessKiller : IAction
             || mainModule.ModuleName.Equals("ida.exe", StringComparison.InvariantCultureIgnoreCase))
             {
                 if (_opts.DryRun) return false;
+                _logger.LogInformation($"Killing {mainModule.ModuleName} ({process.Id})");
                 return KillIda(process, hWnd, settings);
             }
 
@@ -300,6 +300,7 @@ public class ProcessKiller : IAction
             || mainModule.ModuleName.Equals("mspaint.exe", StringComparison.InvariantCultureIgnoreCase)
             || mainModule.ModuleName.Equals("HxD.exe", StringComparison.InvariantCultureIgnoreCase))
             {
+                _logger.LogInformation($"Killing {mainModule.ModuleName} ({process.Id})");
                 if (_opts.DryRun) return false;
                 return KillGuiSaveDialog(process, hWnd, settings);
             }
@@ -314,8 +315,7 @@ public class ProcessKiller : IAction
         {
             mainModule = process.MainModule;
             return mainModule != null;
-        }
-        catch (Exception)
+        } catch (Exception)
         {
             mainModule = null;
             return false;
@@ -351,13 +351,13 @@ public class ProcessKiller : IAction
 
     private void KillProcess(Process process)
     {
-        _logger.LogDebug($"Process Id: {process.Id}, {process.ProcessName}");
+        //_logger.LogDebug($"Process Id: {process.Id}, {process.ProcessName}");
         if (!TryGetMainModule(process, out var mainModule))
         {
-            _logger.LogDebug($"Skipping {process.Id} (cannot query modules)");
+            //_logger.LogDebug($"Skipping {process.Id} (cannot query modules)");
             return;
         }
-        _logger.LogInformation($"Main Module: {mainModule.FileName}");
+        //_logger.LogInformation($"Main Module: {mainModule.FileName}");
 
         var settings = GetPerProcessSettings(process) ?? new PerProcessSettings
         {
@@ -382,12 +382,18 @@ public class ProcessKiller : IAction
         var hWnd = new HWND(process.MainWindowHandle);
         if (!hWnd.IsNull)
         {
-            KillGuiApp(process, hWnd, settings);
+            if (!KillGuiApp(process, hWnd, settings))
+            {
+                _logger.LogError($"Failed to kill GUI app: {process.Id}");
+            }
         }
 
         if (hasConsole)
         {
-            KillConsoleApp(process, settings);
+            if (!KillConsoleApp(process, settings))
+            {
+                _logger.LogError($"Failed to kill Console app: {process.Id}");
+            }
         }
 
         return;
