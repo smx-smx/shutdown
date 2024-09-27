@@ -140,33 +140,6 @@ class ShutdownTool
         }
 #endif
 
-        var builder = Host.CreateApplicationBuilder(args);
-        builder.Services.AddLogging(log =>
-        {
-            var loggingSection = builder.Configuration.GetSection("Logging");
-            log.AddFile(loggingSection);
-        });
-
-        builder.Services.AddWindowsService(opts =>
-        {
-            opts.ServiceName = "ShutdownService";
-        });
-
-        /** 
-         * workaround for https://stackoverflow.com/questions/41259476/microsoft-extensions-configuration-binding-dictionary-with-colons-in-key
-         **/
-        var settingsPath = Path.Combine(ownDir, "AppSettings.json");
-        ShutdownSettingsRoot? settings;
-        {
-            using var jsonStream = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            settings = JsonSerializer.Deserialize<ShutdownSettingsRoot>(jsonStream);
-        }
-        if (settings == null)
-        {
-            throw new InvalidOperationException($"Failed to read configuration from {settingsPath}");
-        }
-
-
         var args_it = args.GetEnumerator();
         var runNow = false;
         var shutdownMode = ShutdownMode.Shutdown;
@@ -189,6 +162,64 @@ class ShutdownTool
             {
                 throw new ArgumentException("Invalid program arguments");
             }
+        }
+
+        var builder = Host.CreateApplicationBuilder(args);
+        builder.Services.AddLogging(log =>
+        {
+            var loggingSection = builder.Configuration.GetSection("Logging");
+            log.AddFile(loggingSection, opts =>
+            {
+                opts.FormatLogFileName = fName =>
+                {
+                    return string.Format(fName, shutdownMode switch
+                    {
+                        ShutdownMode.PreShutdown => "pre",
+                        ShutdownMode.Shutdown => "normal",
+                        _ => Enum.GetName(shutdownMode)
+                    });
+                };
+            });
+        });
+
+        builder.Services.AddWindowsService(opts =>
+        {
+            opts.ServiceName = "ShutdownService";
+        });
+
+        /** 
+         * workaround for https://stackoverflow.com/questions/41259476/microsoft-extensions-configuration-binding-dictionary-with-colons-in-key
+         **/
+        var settingsPath = Path.Combine(ownDir, "AppSettings.json");
+        ShutdownSettingsRoot? settings;
+        {
+            using var jsonStream = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            settings = JsonSerializer.Deserialize<ShutdownSettingsRoot>(jsonStream);
+        }
+        if (settings == null)
+        {
+            throw new InvalidOperationException($"Failed to read configuration from {settingsPath}");
+        }
+
+
+        // spawn a copy for normal shutdown
+        if (shutdownMode == ShutdownMode.PreShutdown && !runNow)
+        {
+            var thisProc = Process.GetCurrentProcess();
+            if (thisProc == null)
+            {
+                throw new InvalidOperationException("Failed to get current process");
+            }
+            var mainMod = thisProc.MainModule;
+            if (mainMod == null)
+            {
+                throw new InvalidOperationException("Failed to get process main module");
+            }
+            var pi = new ProcessStartInfo
+            {
+                FileName = mainMod.FileName
+            };
+            Process.Start(pi);
         }
 
         LoggerProviderOptions.RegisterProviderOptions<EventLogSettings, EventLogLoggerProvider>(builder.Services);
