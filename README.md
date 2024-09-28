@@ -43,7 +43,7 @@ The purpose of this mode is to kill certain UI applications before they get noti
 The currently implemented handlers are:
 
 - automatically close any open `notepad`, `mspaint`, `hxd` instance without saving (useful if you use them as scratchpad)
-- automatically save any close any open IDA database.
+- automatically save and close any open IDA database.
 - try to cleanly close running console applications by sending the Windows equivalent of SIGINT (`CTRL_C_EVENT`) to them
 
 To enable this mode, you can add `-pre` to the command line in the Task Scheduler settings. **You don't need to add a duplicate entry**. The program will spawn a second "normal" instance when running in `-pre` mode.
