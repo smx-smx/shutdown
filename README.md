@@ -34,9 +34,7 @@ Failing to do this will result in shutdown not being intercepted, and risking da
 
 ## Pre-shutdown mode
 
-The latest commits introduce a new feature called "pre-shutdown".
-
-In this mode, 2 instances of the program will be spawned: one which will run early in the shutdown flow ("pre") and another that will run later, when most UI applications have been already terminated (we can refer to it as "normal").
+In "pre-shutdown" mode, 2 instances of the program will be spawned: one which will run early in the shutdown flow ("pre") and another that will run later, when most UI applications have been already terminated (we can refer to it as "normal").
 
 The purpose of this mode is to kill certain UI applications before they get notified about shutdown, and take a default action.
 
