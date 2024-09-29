@@ -2,9 +2,7 @@
   * Windows NT syscall worker thread
   * Copyright (C) Stefano Moioli <smxdev4@gmail.com>
   */
-#define NT_CLOSE 0xF
 #define NT_SET_EVENT 0xE
-#define NT_TERMINATE_THREAD 0x53
 #define NT_SUSPEND_THREAD 0x1BE
 
 #define SIZEOF_VOID_P 8
@@ -51,7 +49,7 @@ sc_main:
 	mov r15, rcx 
 	
 	// NtSetEvent(sc.hEvent, 0)
-	mov eax, 0xe
+	mov eax, NT_SET_EVENT
 	mov r10, qword ptr [r15+8]
 	xor rdx, rdx
 	syscall
@@ -61,7 +59,7 @@ sc_main:
 
 1:
 	// NtSuspendThread(sc.hThread, 0)
-	mov eax, 0x1be
+	mov eax, NT_SUSPEND_THREAD
 	mov r10, qword ptr [r15+16]
 	xor rdx, rdx
 	syscall
@@ -87,7 +85,7 @@ sc_main:
 	mov qword ptr [rsp+SC_REG(0)], rax
 
 	// NtSetEvent(sc.hEvent, 0)
-	mov eax, 0xe
+	mov eax, NT_SET_EVENT
 	mov r10, qword ptr [rsp+SC_HEVENT]
 	xor rdx, rdx
 	syscall
@@ -97,7 +95,7 @@ sc_main:
 
 3:
 	// NtSuspendThread(sc.hThread, 0)
-	mov eax, 0x1be
+	mov eax, NT_SUSPEND_THREAD
 	mov r10, qword ptr [rsp+SC_HTHREAD]
 	xor rdx, rdx
 	syscall
