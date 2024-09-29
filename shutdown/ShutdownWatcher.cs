@@ -53,32 +53,46 @@ public class ShutdownWatcherFactory
         _logFactory = factory;
     }
 
-    public ShutdownWatcher CreateWatcher(ShutdownMode mode)
+    public ShutdownWatcher CreateWatcher(ShutdownMode mode, bool debugMode)
     {
         return new ShutdownWatcher(
             _actions,
             _logFactory.CreateLogger<ShutdownWatcher>(),
-            mode);
+            mode,
+            debugMode);
     }
 }
 
-public class ShutdownWatcher
+public class ShutdownWatcher : IDisposable
 {
     private readonly ShutDownActions _actions;
     private readonly ILogger<ShutdownWatcher> _logger;
     private FreeLibrarySafeHandle _hInstance;
     private readonly ShutdownMode _mode;
+    private readonly bool _debugMode;
+    private HWND _hWnd = HWND.Null;
+    private readonly WNDPROC _wndProcDelegate;
 
     public ShutdownWatcher(
         ShutDownActions actions,
         ILogger<ShutdownWatcher> logger,
-        ShutdownMode mode
+        ShutdownMode mode,
+        bool debugMode
     )
     {
         _mode = mode;
         _actions = actions;
         _logger = logger;
         _hInstance = PInvoke.GetModuleHandle("");
+        _wndProcDelegate = new WNDPROC(WndProc);
+    }
+
+    private void DelayShutdown(string tag, TimeSpan delay)
+    {
+        _logger.LogDebug($"DelayShutdown: sleeping {delay.TotalSeconds} seconds");
+        PInvoke.ShutdownBlockReasonDestroy(_hWnd);
+        PInvoke.ShutdownBlockReasonCreate(_hWnd, $"[{tag}]: Waiting {delay.TotalSeconds} seconds");
+        Thread.Sleep(delay);
     }
 
 
@@ -103,6 +117,10 @@ public class ShutdownWatcher
                     {
                         _actions.Run(_mode, _hWnd);
                         _logger.LogInformation("Pre-Shutdown completed");
+                        if (_debugMode)
+                        {
+                            DelayShutdown("pre", TimeSpan.FromSeconds(60));
+                        }
                         // we can't clear the shutdown block reason from here, since we're in another thread
                         // let's be brutal, for now
                         Environment.Exit(0);
@@ -127,6 +145,10 @@ public class ShutdownWatcher
 
                 _actions.Run(_mode, _hWnd);
                 PInvoke.ShutdownBlockReasonDestroy(hWnd);
+                if (_debugMode)
+                {
+                    DelayShutdown("norm", TimeSpan.FromSeconds(60));
+                }
                 return new LRESULT(0);
 #if false
             case PInvoke.WM_POWERBROADCAST:
@@ -157,7 +179,7 @@ public class ShutdownWatcher
             cbSize = (uint)Unsafe.SizeOf<WNDCLASSEXW>(),
             hInstance = new HINSTANCE(_hInstance.DangerousGetHandle()),
             lpszClassName = className.ToPWSTR(),
-            lpfnWndProc = WndProc
+            lpfnWndProc = _wndProcDelegate
         }) == 0)
         {
             throw new Win32Exception();
@@ -193,14 +215,17 @@ public class ShutdownWatcher
     private void MessageLoop()
     {
         _logger.LogInformation("Starting Shutdown Watcher");
-        while (PInvoke.GetMessage(out var msg, HWND.Null, 0, 0))
+        BOOL bRet;
+        while ((bRet = PInvoke.GetMessage(out var msg, HWND.Null, 0, 0)) != 0)
         {
-            PInvoke.DispatchMessage(msg);
-        }
-
-        if (!PInvoke.UnregisterClass(CLASS_NAME, _hInstance))
-        {
-            _logger.LogError($"UnregisterClass failed: {Marshal.GetLastPInvokeError():X}");
+            if (bRet == -1)
+            {
+                throw new Win32Exception();
+            } else
+            {
+                PInvoke.TranslateMessage(msg);
+                PInvoke.DispatchMessage(msg);
+            }
         }
     }
 
@@ -329,14 +354,9 @@ public class ShutdownWatcher
 
     }
 
-    private HWND _hWnd = HWND.Null;
-
     public void Stop()
     {
-        if (!PInvoke.PostMessage(_hWnd, PInvoke.WM_QUIT, 0, 0))
-        {
-            _logger.LogError($"PostMessage() failed {Marshal.GetLastPInvokeError():X}");
-        }
+        PInvoke.SendMessage(_hWnd, PInvoke.WM_QUIT, 0, 0);
     }
 
     public void Execute()
@@ -346,5 +366,16 @@ public class ShutdownWatcher
         //InstallHandler();
         _hWnd = CreateDummyWindow();
         MessageLoop();
+    }
+
+    public void Dispose()
+    {
+        PInvoke.DestroyWindow(_hWnd);
+        if (!PInvoke.UnregisterClass(CLASS_NAME, _hInstance))
+        {
+            var errCode = Marshal.GetLastPInvokeError();
+            var errMsg = Marshal.GetLastPInvokeErrorMessage();
+            _logger.LogError($"UnregisterClass failed: {errCode:X} - {errMsg}");
+        }
     }
 }

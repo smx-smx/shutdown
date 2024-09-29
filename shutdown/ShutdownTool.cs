@@ -143,6 +143,7 @@ class ShutdownTool
         var args_it = args.GetEnumerator();
         var runNow = false;
         var shutdownMode = ShutdownMode.Shutdown;
+        var debugMode = false;
 
         while (args_it.MoveNext())
         {
@@ -155,6 +156,9 @@ class ShutdownTool
                     break;
                 case "-pre":
                     shutdownMode = ShutdownMode.PreShutdown;
+                    break;
+                case "-debug":
+                    debugMode = true;
                     break;
             }
 
@@ -219,6 +223,10 @@ class ShutdownTool
             {
                 FileName = mainMod.FileName
             };
+            if (debugMode)
+            {
+                pi.ArgumentList.Add("-debug");
+            }
             Process.Start(pi);
         }
 
@@ -238,7 +246,7 @@ class ShutdownTool
             builder.Services.AddHostedService((services) =>
             {
                 var watcherFactory = services.GetRequiredService<ShutdownWatcherFactory>();
-                var watcher = watcherFactory.CreateWatcher(shutdownMode);
+                var watcher = watcherFactory.CreateWatcher(shutdownMode, debugMode);
                 return new ShutdownWatcherService(watcher);
             });
         }

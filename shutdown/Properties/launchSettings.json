@@ -20,7 +20,7 @@
     },
     "shutdown_pre": {
       "commandName": "Project",
-      "commandLineArgs": "-pre",
+      "commandLineArgs": "-pre -debug",
       "nativeDebugging": true
     }
   }
