@@ -165,7 +165,7 @@ namespace Shutdown.Components
         public CloseOpenHandlesAction(
             CloseOpenHandlesParams opts,
             ILogger<CloseOpenHandlesAction> logger,
-            bool useNative = false
+            bool useNative = true
         )
         {
             _volumes = opts;

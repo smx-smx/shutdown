@@ -127,6 +127,27 @@ namespace Shutdown
 
         private readonly MemoryAllocator _mman;
 
+        private LPTHREAD_START_ROUTINE _threadRoutine;
+
+        private SafeFileHandle CreateThread()
+        {
+            const uint stackSize = 128 * 1024;
+
+            var hThread = CreateThread(_threadRoutine, stackSize,
+                            out _stackTop, out _stackBot,
+                            out _scCtx,
+                            out _scHandlerAddr);
+
+            var beginOfUserMem = (nuint)nint.Size + 32 + (nuint)(nint.Size * STACK_ARGV_MAX) + (nuint)Unsafe.SizeOf<SyscallFrame>();
+            _currentStackPointer = _stackTop - beginOfUserMem;
+
+#if ALLOC_STACK
+            _stack = _stackTop - stackSize;
+            AdjustThreadStack();
+#endif
+            return hThread;
+        }
+
         public NtSyscallWorker()
         {
             _mman = new MemoryAllocator(new VirtualMemoryManager
@@ -134,13 +155,13 @@ namespace Shutdown
                 ProtectionFlags = PAGE_PROTECTION_FLAGS.PAGE_READWRITE
             });
 
+            _shellCode = PrepareCodeBuffer();
+            _threadRoutine = Marshal.GetDelegateForFunctionPointer<LPTHREAD_START_ROUTINE>(_shellCode.Address);
+
 #if ALLOC_STACK
             _stack = mman.Alloc(64 * 1024);
             _stackTop = _stack.Address + (nint)_stack.Size;
 #endif
-
-            _shellCode = PrepareCodeBuffer();
-            var threadRoutine = Marshal.GetDelegateForFunctionPointer<LPTHREAD_START_ROUTINE>(_shellCode.Address);
 
             _hEvent = PInvoke.CreateEvent(null, true, false, "ScEvent");
             if (_hEvent.IsInvalid)
@@ -148,25 +169,11 @@ namespace Shutdown
                 throw new Win32Exception();
             }
 
-            const uint stackSize = 128 * 1024;
-            _hThread = CreateThread(threadRoutine, stackSize,
-                out _stackTop, out _stackBot,
-                out _scCtx,
-                out _scHandlerAddr);
-
-
-
-            var beginOfUserMem = (nuint)nint.Size + 32 + (nuint)(nint.Size * STACK_ARGV_MAX) + (nuint)Unsafe.SizeOf<SyscallFrame>();
-            _currentStackPointer = _stackTop - beginOfUserMem;
+            _hThread = CreateThread();
 
             StackAllocator = new MemoryAllocator(
                 new CustomMemoryManager(StackAlloc, StackFree)
             );
-
-#if ALLOC_STACK
-            _stack = _stackTop - stackSize;
-            AdjustThreadStack();
-#endif
         }
 
         private NativeMemoryHandle PrepareCodeBuffer()
@@ -258,10 +265,7 @@ namespace Shutdown
 
             scHandler = (nint)pCtx.Value.Rip;
 
-
-
             Console.WriteLine($"stack context addr: {scPtr:X}");
-            Console.WriteLine("survived setup");
             return hThread;
         }
 
@@ -298,7 +302,25 @@ namespace Shutdown
             File.WriteAllBytes(filePath, stack);
         }
 
-        private void ThreadRun(uint timeoutMilliseconds, SafeFileHandle? hThread = null)
+        private void ResetThread()
+        {
+#if THREAD_RESET_EXPERIMENTAL
+            using var pCtx = _mman.Alloc<CONTEXT>();
+            pCtx.Value.ContextFlags = CONTEXT_FLAGS.CONTEXT_CONTROL_AMD64 | CONTEXT_FLAGS.CONTEXT_INTEGER_X86;
+            GetThreadContext(pCtx.Pointer);
+            pCtx.Value.Rax = 0;
+            pCtx.Value.Rip = (ulong)_scHandlerAddr;
+            SetThreadContext(pCtx.Pointer);
+#else
+            if (!PInvoke.TerminateThread(_hThread, 0))
+            {
+                throw new Win32Exception();
+            }
+            _hThread = CreateThread();
+#endif
+        }
+
+        private bool ThreadRun(uint timeoutMilliseconds, SafeFileHandle? hThread = null)
         {
             var targetThread = hThread != null ? hThread : _hThread;
 
@@ -319,13 +341,10 @@ namespace Shutdown
                 {
                     throw new Win32Exception();
                 }
-                using var pCtx = _mman.Alloc<CONTEXT>();
-                pCtx.Value.ContextFlags = CONTEXT_FLAGS.CONTEXT_CONTROL_AMD64 | CONTEXT_FLAGS.CONTEXT_INTEGER_X86;
-                GetThreadContext(pCtx.Pointer);
-                pCtx.Value.Rax = 0;
-                pCtx.Value.Rip = (ulong)_scHandlerAddr;
-                SetThreadContext(pCtx.Pointer);
+                ResetThread();
+                return false;
             }
+            return true;
         }
 
         /// <summary>
@@ -400,8 +419,14 @@ namespace Shutdown
             scCtx.Setup.hEvent = _hEvent.ToHandle();
 
             pScCtx.Value = scCtx;
-            ThreadRun(timeoutMilliseconds);
-            return (nint)pScCtx.Value.Rax;
+            if (ThreadRun(timeoutMilliseconds))
+            {
+                return (nint)pScCtx.Value.Rax;
+            }
+            else
+            {
+                return (nint)NtStatusCode.STATUS_TIMEOUT;
+            }
         }
 
         private unsafe void GetThreadContext(TypedPointer<CONTEXT> pCtx, SafeFileHandle? hThread = null)

@@ -262,7 +262,11 @@ public class ProcessKiller : IAction
         Thread.Sleep(100);
 
         var boxedSaveHwnd = GetWindowByClass(process, "#32770");
-        if (boxedSaveHwnd == null) return false;
+        if (boxedSaveHwnd == null)
+        {
+            _logger.LogError($"Cannot kill pid {process.Id}: dialog not found");
+            return false;
+        }
 
         var saveHwnd = boxedSaveHwnd.Value;
         var buttons = FindWindows(saveHwnd, (hwnd) =>
@@ -270,7 +274,11 @@ public class ProcessKiller : IAction
             return GetWindowClass(hwnd) == "Button";
         });
 
-        if (buttons.Count != 3) return false;
+        if (buttons.Count != 3)
+        {
+            _logger.LogError($"Cannot kill pid {process.Id}: unexpected dialog with {buttons.Count} buttons");
+            return false;
+        }
         // [Save] - [Dont Save] - [Cancel]
         PInvoke.SendMessage(buttons[1], PInvoke.BM_CLICK, 0, 0);
 
@@ -296,7 +304,8 @@ public class ProcessKiller : IAction
                 return KillIda(process, hWnd, settings);
             }
 
-            if (mainModule.ModuleName.Equals("notepad.exe", StringComparison.InvariantCultureIgnoreCase)
+            if (false
+            || mainModule.ModuleName.Equals("notepad.exe", StringComparison.InvariantCultureIgnoreCase)
             || mainModule.ModuleName.Equals("mspaint.exe", StringComparison.InvariantCultureIgnoreCase)
             || mainModule.ModuleName.Equals("HxD.exe", StringComparison.InvariantCultureIgnoreCase))
             {

@@ -79,9 +79,13 @@ namespace Shutdown
                     (nint)buf.Size,
                     objNameLength.Pointer.Address
                 );
-                if (status == NtStatusCode.STATUS_ACCESS_DENIED)
+                switch (status)
                 {
-                    throw new InvalidOperationException($"Handle {dupHandle.ToHandle():X} denied");
+                    case NtStatusCode.STATUS_TIMEOUT:
+                    case NtStatusCode.STATUS_ACCESS_DENIED:
+                    case NtStatusCode.STATUS_OBJECT_PATH_INVALID:
+                    case NtStatusCode.STATUS_NOT_SUPPORTED:
+                        return NtStatusCode.SUCCESS;
                 }
                 return status;
             });
