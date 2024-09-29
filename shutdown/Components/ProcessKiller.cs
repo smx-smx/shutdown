@@ -258,10 +258,16 @@ public class ProcessKiller : IAction
 
     private bool KillGuiSaveDialog(Process process, HWND hWnd, PerProcessSettings settings)
     {
-        PInvoke.PostMessage(hWnd, PInvoke.WM_SYSCOMMAND, PInvoke.SC_CLOSE, 0);
-        Thread.Sleep(100);
+        HWND? boxedSaveHwnd = null;
+        for (int i = 0; i < 2; i++)
+        {
+            boxedSaveHwnd = GetWindowByClass(process, "#32770");
+            if (boxedSaveHwnd.HasValue && !boxedSaveHwnd.Value.IsNull) break;
 
-        var boxedSaveHwnd = GetWindowByClass(process, "#32770");
+            PInvoke.PostMessage(hWnd, PInvoke.WM_SYSCOMMAND, PInvoke.SC_CLOSE, 0);
+            Thread.Sleep(100);
+        }
+
         if (boxedSaveHwnd == null)
         {
             _logger.LogError($"Cannot kill pid {process.Id}: dialog not found");
@@ -315,7 +321,8 @@ public class ProcessKiller : IAction
             }
         }
 
-        return false;
+        // incompatible app, ignore
+        return true;
     }
 
     private static bool TryGetMainModule(Process process, [MaybeNullWhen(false)] out ProcessModule mainModule)
