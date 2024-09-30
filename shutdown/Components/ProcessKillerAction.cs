@@ -95,7 +95,7 @@ public class ProcessKillerAction : IAction
         }
 
         var modules = new IProcessKiller[]{
-            new IdaKiller(),
+            new IdaKiller(_factory.CreateLogger<IdaKiller>()),
             new GenericSaveDialogKiller(_factory.CreateLogger<GenericSaveDialogKiller>())
         };
 
@@ -122,8 +122,7 @@ public class ProcessKillerAction : IAction
         {
             mainModule = process.MainModule;
             return mainModule != null;
-        }
-        catch (Exception)
+        } catch (Exception)
         {
             mainModule = null;
             return false;

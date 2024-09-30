@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 
@@ -18,6 +19,15 @@ namespace Shutdown.Components.ProcessKiller.Modules
 {
     public class IdaKiller : ProcessKillerBase, IProcessKiller
     {
+        private readonly ILogger<IdaKiller> _logger;
+
+        public IdaKiller(
+            ILogger<IdaKiller> logger
+        )
+        {
+            _logger = logger;
+        }
+
         public bool IsProcessSupported(Process process, HWND hWnd, PerProcessSettings settings)
         {
             if (!settings.Flags.HasFlag(ProcessKillFlags.UI_AttemptSave))
@@ -35,15 +45,24 @@ namespace Shutdown.Components.ProcessKiller.Modules
 
         public bool KillProcess(Process process, HWND hWnd, PerProcessSettings settings)
         {
-            PInvoke.PostMessage(hWnd, PInvoke.WM_SYSCOMMAND, PInvoke.SC_CLOSE, 0);
-            Thread.Sleep(100);
+            HWND? boxedSaveHwnd = null;
+            for (var i = 0; i < 2; i++)
+            {
+                boxedSaveHwnd = GetWindowByTitle(process, "Save database");
+                if (boxedSaveHwnd.HasValue && !boxedSaveHwnd.Value.IsNull) break;
 
-            var boxedSaveHwnd = GetWindowByTitle(process, "Save database");
-            if (boxedSaveHwnd == null) return false;
+                PInvoke.PostMessage(hWnd, PInvoke.WM_SYSCOMMAND, PInvoke.SC_CLOSE, 0);
+                Thread.Sleep(100);
+            }
 
-            var saveHwnd = boxedSaveHwnd.Value;
 
-            SendAcceleratorKey(saveHwnd, 'K');
+            if (boxedSaveHwnd == null)
+            {
+                _logger.LogError($"Cannot kill pid {process.Id}: dialog not found");
+                return false;
+            }
+
+            SendAcceleratorKey(boxedSaveHwnd.Value, 'K');
             process.WaitForExit(settings.Timeout);
             return process.HasExited;
         }
