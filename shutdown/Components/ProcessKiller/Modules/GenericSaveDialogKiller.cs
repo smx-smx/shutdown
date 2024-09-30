@@ -46,24 +46,16 @@ namespace Shutdown.Components.ProcessKiller.Modules
 
         public bool KillProcess(Process process, HWND hWnd, PerProcessSettings settings)
         {
-            HWND? boxedSaveHwnd = null;
-            for (int i = 0; i < 2; i++)
+            if (!GetCloseDialog(hWnd, () =>
             {
-                boxedSaveHwnd = GetWindowByClass(process, "#32770");
-                if (boxedSaveHwnd.HasValue && !boxedSaveHwnd.Value.IsNull) break;
-
-                PInvoke.PostMessage(hWnd, PInvoke.WM_SYSCOMMAND, PInvoke.SC_CLOSE, 0);
-                Thread.Sleep(100);
-            }
-
-            if (boxedSaveHwnd == null)
+                return GetWindowByClass(process, "#32770");
+            }, TimeSpan.FromMilliseconds(100), out var dlgHandle))
             {
                 _logger.LogError($"Cannot kill pid {process.Id}: dialog not found");
                 return false;
             }
 
-            var saveHwnd = boxedSaveHwnd.Value;
-            var buttons = FindWindows(saveHwnd, (hwnd) =>
+            var buttons = FindWindows(dlgHandle, (hwnd) =>
             {
                 return GetWindowClass(hwnd) == "Button";
             });

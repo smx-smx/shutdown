@@ -71,6 +71,31 @@ namespace Shutdown.Components.ProcessKiller
             return windowTitle;
         }
 
+        protected static bool GetCloseDialog(
+            HWND hWnd,
+            Func<HWND?> getDlgHandle,
+            TimeSpan delay,
+            [MaybeNullWhen(false)] out HWND dlgHandle)
+        {
+            dlgHandle = default;
+            for (int i = 0; i < 2; i++)
+            {
+                var handle = getDlgHandle();
+                if (handle.HasValue && !handle.Value.IsNull)
+                {
+                    dlgHandle = handle.Value;
+                    return true;
+                }
+                else
+                {
+                    PInvoke.PostMessage(hWnd, PInvoke.WM_SYSCOMMAND, PInvoke.SC_CLOSE, 0);
+                    Thread.Sleep(delay);
+                }
+            }
+
+            return false;
+        }
+
         protected static IList<HWND> FindWindows(HWND hwnd, Func<HWND, bool> evaluateHwnd, bool stopAfterFirst = false)
         {
             var result = new List<HWND>();
