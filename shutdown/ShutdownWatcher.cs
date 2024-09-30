@@ -111,6 +111,7 @@ public class ShutdownWatcher : IDisposable
                 PInvoke.PostQuitMessage(0);
                 return new LRESULT(0);
             case PInvoke.WM_QUERYENDSESSION:
+                _logger.LogInformation("Got WM_QUERYENDSESSION");
                 if (_mode == ShutdownMode.PreShutdown)
                 {
                     Task.Run(() =>
@@ -133,6 +134,7 @@ public class ShutdownWatcher : IDisposable
                 // (actually we can't block shutdown anymore since Windows Vista)
                 return new LRESULT(1);
             case PInvoke.WM_ENDSESSION:
+                _logger.LogInformation("Got WM_ENDSESSION");
                 if (_mode == ShutdownMode.PreShutdown)
                 {
                     return new LRESULT(1);
@@ -221,7 +223,8 @@ public class ShutdownWatcher : IDisposable
             if (bRet == -1)
             {
                 throw new Win32Exception();
-            } else
+            }
+            else
             {
                 PInvoke.TranslateMessage(msg);
                 PInvoke.DispatchMessage(msg);
@@ -267,7 +270,8 @@ public class ShutdownWatcher : IDisposable
             {
                 throw new Win32Exception();
             }
-        } else
+        }
+        else
         {
             _logger.LogInformation("Setting shutdown parameter for pre-shutdown");
             /**
@@ -370,6 +374,7 @@ public class ShutdownWatcher : IDisposable
 
     public void Dispose()
     {
+        _logger.LogInformation("Disposing");
         PInvoke.DestroyWindow(_hWnd);
         if (!PInvoke.UnregisterClass(CLASS_NAME, _hInstance))
         {

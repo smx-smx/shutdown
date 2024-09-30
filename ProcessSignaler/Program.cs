@@ -7,25 +7,65 @@
  */
 #endregion
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using Windows.Win32;
 
+static bool TryTake(IEnumerator<string> it, [MaybeNullWhen(false)] out string arg)
+{
+    if (!it.MoveNext())
+    {
+        arg = null;
+        return false;
+    }
+
+    arg = it.Current;
+    return true;
+}
+
+var args_it = args.GetEnumerator();
+
 uint pid = 0;
-if (args.Length < 1
-    || !uint.TryParse(args[0], out pid)
-    || pid == 0)
+bool sendCtrlC = true;
+uint signal = PInvoke.CTRL_C_EVENT;
+
+bool error = false;
+for (int argi = 0, unnamed_argi = 0; args_it.MoveNext() && !error; argi++)
+{
+    switch (args_it.Current)
+    {
+        case "-check":
+            sendCtrlC = false;
+            break;
+        default:
+            switch (unnamed_argi++)
+            {
+                case 0:
+                    if (!uint.TryParse(args[argi], out pid) || pid == 0)
+                    {
+                        error = true;
+                    }
+                    break;
+                case 1:
+                    signal = uint.Parse(args[argi]);
+                    break;
+            }
+            break;
+    }
+}
+
+if (error)
 {
     Console.Error.WriteLine("Usage: [pid]");
     Environment.Exit(1);
 }
 
-uint signal = args.Length > 1
-    ? uint.Parse(args[1])
-    : PInvoke.CTRL_C_EVENT;
 
 PInvoke.FreeConsole();
 if (!PInvoke.AttachConsole(pid))
 {
-    throw new Win32Exception();
+    Console.Error.WriteLine($"AttachConsole failed: 0x{Marshal.GetLastPInvokeError():X} - {Marshal.GetLastPInvokeErrorMessage()}");
+    Environment.Exit(1);
 }
 // Taken from MedallionShell:
 // disable signal handling for our program
@@ -33,11 +73,16 @@ if (!PInvoke.AttachConsole(pid))
 // "Calling SetConsoleCtrlHandler with the NULL and TRUE arguments causes the calling process to ignore CTRL+C signals"
 if (!PInvoke.SetConsoleCtrlHandler(null, true))
 {
-    throw new Win32Exception();
+    Console.Error.WriteLine($"SetConsoleCtrlHandler failed: 0x{Marshal.GetLastPInvokeError():X} - {Marshal.GetLastPInvokeErrorMessage()}");
+    Environment.Exit(1);
 }
 
-// special group 0: all process attached to the console
-if (!PInvoke.GenerateConsoleCtrlEvent(signal, 0))
+if (sendCtrlC)
 {
-    throw new Win32Exception();
+    // special group 0: all process attached to the console
+    if (!PInvoke.GenerateConsoleCtrlEvent(signal, 0))
+    {
+        Console.Error.WriteLine($"GenerateConsoleCtrlEvent failed: 0x{Marshal.GetLastPInvokeError():X} - {Marshal.GetLastPInvokeErrorMessage()}");
+        Environment.Exit(1);
+    }
 }

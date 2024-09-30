@@ -133,6 +133,7 @@ public class ProcessKillerAction : IAction
     {
         if (!_opts.DryRun && settings.Flags.HasFlag(ProcessKillFlags.Console_SendCtrlC))
         {
+            _logger.LogInformation($"Killing console app: {process.Id}");
             var pi = new ProcessStartInfo
             {
                 FileName = _processSignaler
@@ -156,9 +157,26 @@ public class ProcessKillerAction : IAction
         return settings;
     }
 
+    private bool ProcessHasConsole(Process process)
+    {
+        var pi = new ProcessStartInfo
+        {
+            FileName = _processSignaler
+        };
+        pi.ArgumentList.Add(process.Id.ToString());
+        pi.ArgumentList.Add("-check");
+        var proc = Process.Start(pi);
+        if (proc == null)
+        {
+            throw new InvalidOperationException("failed to start process signaler");
+        }
+        proc.WaitForExit();
+        return proc.ExitCode == 0;
+    }
+
     private void KillProcess(Process process)
     {
-        //_logger.LogDebug($"Process Id: {process.Id}, {process.ProcessName}");
+        //_logger.LogDebug($"--> Process Id: {process.Id}, {process.ProcessName}");
         if (!TryGetMainModule(process, out var mainModule))
         {
             //_logger.LogDebug($"Skipping {process.Id} (cannot query modules)");
@@ -172,20 +190,6 @@ public class ProcessKillerAction : IAction
             Timeout = TimeSpan.FromSeconds(90)
         };
 
-        var processList = new uint[128];
-        for (int i = 0; i < 3; i++)
-        {
-            var nItems = PInvoke.GetConsoleProcessList(processList);
-            if (nItems == 0)
-            {
-                throw new Win32Exception();
-            }
-            if (nItems <= processList.Length) break;
-            processList = new uint[nItems];
-        }
-
-        bool hasConsole = processList.AsReadOnly().Contains((uint)process.Id);
-
         var hWnd = new HWND(process.MainWindowHandle);
         if (!hWnd.IsNull)
         {
@@ -195,6 +199,8 @@ public class ProcessKillerAction : IAction
             }
         }
 
+#if false
+        bool hasConsole = ProcessHasConsole(process);
         if (hasConsole)
         {
             if (!KillConsoleApp(process, settings))
@@ -202,7 +208,9 @@ public class ProcessKillerAction : IAction
                 _logger.LogError($"Failed to kill Console app: {process.Id}");
             }
         }
+#endif
 
+        //_logger.LogDebug($"<-- Process Id: {process.Id}, {process.ProcessName}");
         return;
 
     }
@@ -218,17 +226,21 @@ public class ProcessKillerAction : IAction
         var tasks = new List<Task>();
         foreach (var proc in procs)
         {
-            proc.Equals(proc);
             if (proc.Id == thisProc.Id) continue;
             if (!TryGetMainModule(proc, out var mainMod)) continue;
             if (mainMod.ModuleName.Equals("VsDebugConsole.exe", StringComparison.CurrentCultureIgnoreCase)) continue;
             if (mainMod.ModuleName.Equals("NtQueryNameWorker.exe", StringComparison.CurrentCultureIgnoreCase)) continue;
-            if (mainMod.ModuleName.Equals("PRocessSignaler.exe", StringComparison.CurrentCultureIgnoreCase)) continue;
+            if (mainMod.ModuleName.Equals("ProcessSignaler.exe", StringComparison.CurrentCultureIgnoreCase)) continue;
             tasks.Add(Task.Run(() =>
             {
                 KillProcess(proc);
             }));
         }
+        _logger.LogInformation("Waiting for killer tasks to complete");
+        var timer = new Stopwatch();
+        timer.Start();
         Task.WaitAll(tasks.ToArray(), TimeSpan.FromMinutes(2));
+        timer.Stop();
+        _logger.LogInformation($"All tasks completed. Elapsed: {timer.Elapsed.TotalSeconds}");
     }
 }
