@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Shutdown.Components.ProcessKiller;
 using Shutdown.Components.ProcessKiller.Modules;
 using ShutdownLib;
+using Smx.SharpIO.Memory;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -26,6 +27,7 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.System.Threading;
 using Windows.Win32.UI.Input.KeyboardAndMouse;
+using static ShutdownLib.Ntdll;
 
 namespace Shutdown.Components;
 
@@ -157,21 +159,96 @@ public class ProcessKillerAction : IAction
         return settings;
     }
 
+    private static bool TryGetProcessPebData(uint dwProcessId,
+        [MaybeNullWhen(false)]
+        out PEB_unmanaged? outPebData,
+        [MaybeNullWhen(false)]
+        out RTL_USER_PROCESS_PARAMETERS? outProcessParameters
+    )
+    {
+        outPebData = null;
+        outProcessParameters = null;
+
+        using var hProc = PInvoke.OpenProcess_SafeHandle(0
+            | PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION
+            | PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ,
+            false, dwProcessId
+        );
+        if (hProc.IsInvalid) return false;
+
+        var info = MemoryHGlobal.Alloc<PROCESS_BASIC_INFORMATION>();
+        var status = NtQueryInformationProcess(
+            hProc.ToHandle(),
+            (uint)PROCESS_INFORMATION_CLASS.ProcessBasicInformation,
+            info.Address, (uint)Unsafe.SizeOf<PROCESS_BASIC_INFORMATION>(),
+            out var returnLength
+        );
+
+        if (!NT_SUCCESS(status))
+        {
+            return false;
+        }
+
+        unsafe
+        {
+            var pPeb = info.Value.PebBaseAddress;
+            if (pPeb == null) return false;
+
+
+            /** phase 1 **/
+
+            using var pebBuf = MemoryHGlobal.Alloc<PEB_unmanaged>();
+
+            nuint nRead = 0;
+            if (!PInvoke.ReadProcessMemory(hProc, pPeb,
+                pebBuf.Address.ToPointer(), pebBuf.Memory.Size,
+                &nRead
+            ) || nRead != pebBuf.Memory.Size)
+            {
+                throw new Win32Exception();
+            }
+            outPebData = pebBuf.Value;
+
+            nRead = 0;
+
+            using var pebProcParams = MemoryHGlobal.Alloc<RTL_USER_PROCESS_PARAMETERS>();
+
+            var peb = pebBuf.Value;
+            if (peb.ProcessParameters == null) return false;
+
+            if (!PInvoke.ReadProcessMemory(hProc, peb.ProcessParameters,
+                pebProcParams.Address.ToPointer(), pebProcParams.Memory.Size,
+                &nRead
+            ) || nRead != pebProcParams.Memory.Size)
+            {
+                throw new Win32Exception();
+            }
+            outProcessParameters = pebProcParams.Value;
+            nRead = 0;
+        }
+        return true;
+    }
+
     private bool ProcessHasConsole(Process process)
     {
-        var pi = new ProcessStartInfo
+        if (!TryGetProcessPebData((uint)process.Id, out var boxPebData, out var boxProcessParams)
+            || boxPebData == null || boxProcessParams == null
+            || !boxPebData.HasValue || !boxProcessParams.HasValue)
         {
-            FileName = _processSignaler
-        };
-        pi.ArgumentList.Add(process.Id.ToString());
-        pi.ArgumentList.Add("-check");
-        var proc = Process.Start(pi);
-        if (proc == null)
-        {
-            throw new InvalidOperationException("failed to start process signaler");
+            _logger.LogError($"Failed to read PEB for pid {process.Id}");
+            return false;
         }
-        proc.WaitForExit();
-        return proc.ExitCode == 0;
+        var processParams = boxProcessParams.Value;
+
+        RTL_USER_PROCESS_PARAMETERS_INTERNAL procParams;
+        unsafe
+        {
+            procParams = new TypedPointer<RTL_USER_PROCESS_PARAMETERS_INTERNAL>(
+                new nint(Unsafe.AsPointer(ref processParams))
+            ).Value;
+        }
+        var consoleHandle = procParams.ConsoleHandle.Value;
+        return consoleHandle != 0 && consoleHandle != -1;
     }
 
     private void KillProcess(Process process)
@@ -249,10 +326,14 @@ public class ProcessKillerAction : IAction
                 _logger.LogInformation($"Skipping excluded process: {mainMod.ModuleName} ({proc.Id})");
                 continue;
             }
+#if DEBUG
+            KillProcess(proc);
+#else
             tasks.Add(Task.Run(() =>
             {
                 KillProcess(proc);
             }));
+#endif
         }
         _logger.LogInformation("Waiting for killer tasks to complete");
         var timer = new Stopwatch();

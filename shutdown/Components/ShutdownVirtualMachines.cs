@@ -409,8 +409,7 @@ namespace Shutdown.Components
             if (ShutdownVmFlow(state, vm, opts))
             {
                 _logger.LogInformation($"{vmxFilePath}: Shutdown OK");
-            }
-            else
+            } else
             {
                 _logger.LogInformation($"{vmxFilePath}: Shutdown NOK");
             }

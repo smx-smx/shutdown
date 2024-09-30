@@ -80,6 +80,33 @@ namespace ShutdownLib
         public UNICODE_STRING Name;
     }
 
+    public struct CURDIR
+    {
+        public UNICODE_STRING DosPath;
+        public HANDLE Handle;
+    }
+
+    public struct RTL_USER_PROCESS_PARAMETERS_INTERNAL
+    {
+        /** reserved1 (16 bytes) **/
+        public uint AllocationSize;
+        public uint Size;
+        public uint Flags;
+        public uint DebugFlags;
+        /** reserved2 (80 bytes) **/
+        public HANDLE ConsoleHandle;
+        public nint ConsoleFlags;
+        public HANDLE StandardInput;
+        public HANDLE StandardOutput;
+        public HANDLE StandardError;
+        public CURDIR CurrentDirectory;
+        /****/
+        public UNICODE_STRING ImagePathName;
+        public UNICODE_STRING CommandLine;
+        public nint Environment;
+        /// and so on, we don't need all the fields
+    }
+
     public static class ACCESS_MASK
     {
         public const uint DIRECTORY_QUERY = 0x0001;
