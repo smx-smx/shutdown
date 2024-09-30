@@ -222,15 +222,33 @@ public class ProcessKillerAction : IAction
         {
             throw new InvalidOperationException("failed to get current process");
         }
+        if (!TryGetMainModule(thisProc, out var thisMainMod))
+        {
+            throw new InvalidOperationException("failed to get current main module");
+        }
+
         var procs = Process.GetProcesses();
         var tasks = new List<Task>();
+
+        // $TODO: move to JSON configuration
+        var exclusions = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase)
+        {
+            "VsDebugConsole.exe",
+            "NtQueryNameWorker.exe",
+            "ProcessSignaler.exe",
+            thisMainMod.ModuleName
+        };
+
         foreach (var proc in procs)
         {
             if (proc.Id == thisProc.Id) continue;
             if (!TryGetMainModule(proc, out var mainMod)) continue;
-            if (mainMod.ModuleName.Equals("VsDebugConsole.exe", StringComparison.CurrentCultureIgnoreCase)) continue;
-            if (mainMod.ModuleName.Equals("NtQueryNameWorker.exe", StringComparison.CurrentCultureIgnoreCase)) continue;
-            if (mainMod.ModuleName.Equals("ProcessSignaler.exe", StringComparison.CurrentCultureIgnoreCase)) continue;
+
+            if (exclusions.Contains(mainMod.ModuleName))
+            {
+                _logger.LogInformation($"Skipping excluded process: {mainMod.ModuleName} ({proc.Id})");
+                continue;
+            }
             tasks.Add(Task.Run(() =>
             {
                 KillProcess(proc);
