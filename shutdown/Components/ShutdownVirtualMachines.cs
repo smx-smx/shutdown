@@ -106,104 +106,6 @@ namespace Shutdown.Components
                 if (string.IsNullOrWhiteSpace(item.VmxPath)) continue;
                 vmxToOpts.Add(item.VmxPath, item);
             }
-
-        }
-
-        private string? ProcessGetCommandLine(uint dwProcessId)
-        {
-            using var hProc = PInvoke.OpenProcess_SafeHandle(0
-                | PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_INFORMATION
-                | PROCESS_ACCESS_RIGHTS.PROCESS_VM_READ,
-                false, dwProcessId
-            );
-            if (hProc.IsInvalid) return null;
-
-            var info = MemoryHGlobal.Alloc<PROCESS_BASIC_INFORMATION>();
-            var status = NtQueryInformationProcess(
-                hProc.ToHandle(),
-                (uint)PROCESS_INFORMATION_CLASS.ProcessBasicInformation,
-                info.Address, (uint)Unsafe.SizeOf<PROCESS_BASIC_INFORMATION>(),
-                out var returnLength
-            );
-
-            if (!NT_SUCCESS(status))
-            {
-                return null;
-            }
-
-            string cmdLine;
-            unsafe
-            {
-                var pPeb = info.Value.PebBaseAddress;
-                if (pPeb == null) return null;
-
-                /** phase 1 **/
-
-                using var pebBuf = MemoryHGlobal.Alloc<PEB_unmanaged>();
-
-                nuint nRead = 0;
-                if (!PInvoke.ReadProcessMemory(hProc, pPeb,
-                    pebBuf.Address.ToPointer(), pebBuf.Memory.Size,
-                    &nRead
-                ) || nRead != pebBuf.Memory.Size)
-                {
-                    throw new Win32Exception();
-                }
-                nRead = 0;
-
-                /** phase 2 **/
-
-                using var pebProcParams = MemoryHGlobal.Alloc<RTL_USER_PROCESS_PARAMETERS>();
-
-                var peb = pebBuf.Value;
-                if (peb.ProcessParameters == null) return null;
-
-                if (!PInvoke.ReadProcessMemory(hProc, peb.ProcessParameters,
-                    pebProcParams.Address.ToPointer(), pebProcParams.Memory.Size,
-                    &nRead
-                ) || nRead != pebProcParams.Memory.Size)
-                {
-                    throw new Win32Exception();
-                }
-                nRead = 0;
-
-                /** phase 3 **/
-
-                var cmdlineBuf = pebProcParams.Value.CommandLine;
-                if (cmdlineBuf.Buffer.Value == null) return null;
-
-                using var charBuf = MemoryHGlobal.Alloc(sizeof(char) * cmdlineBuf.Length);
-
-                if (!PInvoke.ReadProcessMemory(hProc, cmdlineBuf.Buffer.Value,
-                    charBuf.Address.ToPointer(), charBuf.Size, &nRead
-                ) || nRead != charBuf.Size)
-                {
-                    throw new Win32Exception();
-                }
-
-                cmdLine = charBuf.ToPWSTR().ToString();
-
-            }
-            return cmdLine;
-        }
-
-
-        private List<string> ParseCommandLine(string cmdline)
-        {
-            var parts = new List<string>();
-            var regex = new Regex(@"(""(?:\\.|[^""])*""|\S+)");
-            var matches = regex.Matches(cmdline);
-
-            foreach (Match m in matches)
-            {
-                var value = m.Value;
-                if (value.StartsWith("\"") && value.EndsWith("\""))
-                {
-                    value = value.Substring(1, value.Length - 2);
-                }
-                parts.Add(value);
-            }
-            return parts;
         }
 
         private Dictionary<string, string> ParseVmx(string vmxPath)
@@ -339,12 +241,12 @@ namespace Shutdown.Components
 
         private VmInstance? ToVmInstance(Process proc)
         {
-            var cmdline = ProcessGetCommandLine((uint)proc.Id);
+            var cmdline = ProcessUtil.GetCommandLine(proc);
             if (cmdline == null)
             {
                 return null;
             }
-            var parsedCmdline = ParseCommandLine(cmdline);
+            var parsedCmdline = ProcessUtil.ParseCommandLine(cmdline);
             if (parsedCmdline.Count < 2)
             {
                 return null;

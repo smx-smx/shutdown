@@ -31,8 +31,7 @@ namespace Shutdown.Components.ProcessKiller
             {
                 mainModule = process.MainModule;
                 return mainModule != null;
-            }
-            catch (Exception)
+            } catch (Exception)
             {
                 mainModule = null;
                 return false;
@@ -85,8 +84,7 @@ namespace Shutdown.Components.ProcessKiller
                 {
                     dlgHandle = handle.Value;
                     return true;
-                }
-                else
+                } else
                 {
                     PInvoke.PostMessage(hWnd, PInvoke.WM_SYSCOMMAND, PInvoke.SC_CLOSE, 0);
                     Thread.Sleep(delay);
@@ -182,8 +180,7 @@ namespace Shutdown.Components.ProcessKiller
                             return false;
                         }
                         return true;
-                    }
-                    else
+                    } else
                     {
                         throw new Win32Exception();
                     }
@@ -219,11 +216,27 @@ namespace Shutdown.Components.ProcessKiller
             }, true).FirstOrDefault();
         }
 
+        protected static void SendKey(HWND hWnd, ushort key)
+        {
+            PInvoke.SendMessage(hWnd, PInvoke.WM_KEYDOWN, key, 0);
+            PInvoke.SendMessage(hWnd, PInvoke.WM_KEYUP, key, 0);
+        }
+
+        protected static void SendKey(HWND hWnd, VIRTUAL_KEY key)
+        {
+            SendKey(hWnd, (ushort)key);
+        }
+
+        protected static void SendKey(HWND hWnd, char key)
+        {
+            PInvoke.SendMessage(hWnd, PInvoke.WM_KEYDOWN, key, 0);
+            PInvoke.SendMessage(hWnd, PInvoke.WM_KEYUP, key, 0);
+        }
+
         protected static void SendAcceleratorKey(HWND hWnd, char key)
         {
             PInvoke.SendMessage(hWnd, PInvoke.WM_SYSKEYDOWN, (uint)VIRTUAL_KEY.VK_MENU, 0);
-            PInvoke.SendMessage(hWnd, PInvoke.WM_KEYDOWN, key, 0);
-            PInvoke.SendMessage(hWnd, PInvoke.WM_KEYUP, key, 0);
+            SendKey(hWnd, key);
             PInvoke.SendMessage(hWnd, PInvoke.WM_SYSKEYUP, (uint)VIRTUAL_KEY.VK_MENU, 0);
         }
     }

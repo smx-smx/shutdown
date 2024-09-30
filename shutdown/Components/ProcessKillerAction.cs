@@ -98,7 +98,8 @@ public class ProcessKillerAction : IAction
 
         var modules = new IProcessKiller[]{
             new IdaKiller(_factory.CreateLogger<IdaKiller>()),
-            new GenericSaveDialogKiller(_factory.CreateLogger<GenericSaveDialogKiller>())
+            new GenericSaveDialogKiller(_factory.CreateLogger<GenericSaveDialogKiller>()),
+            new ArsenalImageMounter(_factory.CreateLogger<ArsenalImageMounter>())
         };
 
         var logPrefix = _opts.DryRun ? "[DRY] " : "";
