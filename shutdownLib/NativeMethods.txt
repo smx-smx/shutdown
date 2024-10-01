@@ -145,3 +145,5 @@ SetConsoleCtrlHandler
 GenerateConsoleCtrlEvent
 CTRL_C_EVENT
 GetConsoleProcessList
+GetIScsiSessionList
+LogoutIScsiTarget

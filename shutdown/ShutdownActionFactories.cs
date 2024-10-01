@@ -18,7 +18,8 @@ namespace Shutdown
         CloseOpenHandlesFactory closeOpenHandles,
         DismountVolumesFactory dismountVolumes,
         ShutdownVirtualMachinesFactory shutdownVms,
-        ProcessKillerFactory processKiller
+        ProcessKillerFactory processKiller,
+        LogoutIscsiFactory logoutIscsiTargets
     )
     { }
 }

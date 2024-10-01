@@ -24,7 +24,6 @@ namespace Shutdown
         private ICollection<CloseOpenHandlesItem> _closeHandlesList;
         private HashSet<string> _dismountVolumesList;
 
-
         private ShutdownActionFactories _factories;
 
         public ShutdownActionsBuilder(
@@ -57,6 +56,22 @@ namespace Shutdown
             {
                 _dismountVolumesList.Add(volumeName);
             }
+        }
+
+        private void BuildIscsiTargets()
+        {
+            if (_options.IscsiTargets == null) return;
+            var iscsiTargets = _options.IscsiTargets
+                .Where(it => it.Value.Logout?.Enable == true)
+                .Select(it => it.Key)
+                .ToHashSet();
+
+            var logoutAction = _factories.logoutIscsiTargets.Create(new LogoutIscsiParams
+            {
+                DryRun = _options.DryRun,
+                Targets = iscsiTargets
+            });
+            _actions.Add(logoutAction);
         }
 
         private void BuildVirtualMachines()
@@ -118,10 +133,12 @@ namespace Shutdown
             if (mode == ShutdownMode.PreShutdown)
             {
                 BuildProcessKiller();
-            } else
+            }
+            else
             {
                 BuildVolumes();
                 BuildVirtualMachines();
+                BuildIscsiTargets();
             }
             return _actions;
         }

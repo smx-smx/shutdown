@@ -255,6 +255,7 @@ class ShutdownTool
         builder.Services.AddSingleton<CloseOpenHandlesFactory>();
         builder.Services.AddSingleton<ShutdownVirtualMachinesFactory>();
         builder.Services.AddSingleton<ProcessKillerFactory>();
+        builder.Services.AddSingleton<LogoutIscsiFactory>();
 
 
         builder.Services.AddSingleton<ShutdownActionFactories>();
@@ -285,11 +286,13 @@ class ShutdownTool
             {
                 host.Services.GetRequiredService<ShutDownActions>().Run(shutdownMode);
                 Console.WriteLine("- done");
-            } else
+            }
+            else
             {
                 host.Run();
             }
-        } catch (Exception ex)
+        }
+        catch (Exception ex)
         {
             mainLogger.LogError(ex, "Unhandled exception");
             return 1;

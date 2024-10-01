@@ -84,12 +84,23 @@ namespace Shutdown
         public IList<ShutdownVmOptions> Items { get; set; } = new List<ShutdownVmOptions>();
     }
 
+    public class IscsiTargetLogoutOptions
+    {
+        public bool Enable { get; set; }
+    }
+
+    public class IscsiTargetOptions
+    {
+        public IscsiTargetLogoutOptions? Logout { get; set; }
+    }
+
     public class ShutdownOptions
     {
         public bool DryRun { get; set; } = false;
         public Dictionary<string, VolumeOptions> Volumes { get; set; } = new Dictionary<string, VolumeOptions>();
         public VirtualMachineOptions? VirtualMachines { get; set; }
         public KillProcessesOptions? KillProcesses { get; set; }
+        public Dictionary<string, IscsiTargetOptions>? IscsiTargets { get; set; }
 
     }
 
