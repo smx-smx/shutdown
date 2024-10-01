@@ -34,14 +34,15 @@ namespace Shutdown.Components
 {
     public class CloseOpenHandlesItem
     {
-        public required string Name { get; set; }
+        public required bool IsVolume { get; set; }
+        public required string NameOrPath { get; set; }
         public bool FlushObjects { get; set; } = false;
     }
 
     public class CloseOpenHandlesParams
     {
         public bool DryRun { get; set; } = false;
-        public ICollection<CloseOpenHandlesItem> Volumes { get; set; } = new List<CloseOpenHandlesItem>();
+        public ICollection<CloseOpenHandlesItem> Paths { get; set; } = new List<CloseOpenHandlesItem>();
     }
 
     public class CloseOpenHandlesFactory
@@ -252,7 +253,7 @@ namespace Shutdown.Components
             return true;
         }
 
-        private void CloseOpenHandles(string volumePath, bool flushObjects)
+        private void CloseOpenHandles(string pathPrefix, bool flushObjects)
         {
             using var thisProc = PInvoke.GetCurrentProcess_SafeHandle();
             NtStatusCode status;
@@ -293,7 +294,7 @@ namespace Shutdown.Components
                 if (name == null) continue;
                 //_logger.LogDebug(name);
 
-                if (!name.StartsWith(volumePath)) continue;
+                if (!name.StartsWith(pathPrefix)) continue;
 
                 var dryPrefix = _volumes.DryRun ? "[DRY] " : "";
 
@@ -318,17 +319,27 @@ namespace Shutdown.Components
         public void Execute(ShutdownState state)
         {
             _worker.Start();
-            foreach (var vol in _volumes.Volumes)
+            foreach (var vol in _volumes.Paths)
             {
-                _logger.LogInformation($"Closing handles for volume: {vol.Name}");
-                var bufName = Helpers.Win32CallWithGrowableBuffer((buf) =>
+                if (vol.IsVolume)
                 {
-                    var maxChars = (uint)(buf.Size / sizeof(char));
-                    var numChars = PInvoke.QueryDosDevice(vol.Name, buf.ToPWSTR(), maxChars);
-                    return (uint)Marshal.GetLastPInvokeError();
-                });
-                var volumePath = bufName.ToPWSTR().ToString();
-                CloseOpenHandles(volumePath, vol.FlushObjects);
+                    _logger.LogInformation($"Closing handles for volume: {vol.NameOrPath}");
+                    state.SetShutdownStatusMessage($"Closing volume handles: {vol.NameOrPath}");
+                    var bufName = Helpers.Win32CallWithGrowableBuffer((buf) =>
+                    {
+                        var maxChars = (uint)(buf.Size / sizeof(char));
+                        var numChars = PInvoke.QueryDosDevice(vol.NameOrPath, buf.ToPWSTR(), maxChars);
+                        return (uint)Marshal.GetLastPInvokeError();
+                    });
+                    var volumePath = bufName.ToPWSTR().ToString();
+                    CloseOpenHandles(volumePath, vol.FlushObjects);
+                }
+                else
+                {
+                    _logger.LogInformation($"Closing handles for path: {vol.NameOrPath}");
+                    state.SetShutdownStatusMessage($"Closing path handles: {vol.NameOrPath}");
+                    CloseOpenHandles(vol.NameOrPath, vol.FlushObjects);
+                }
             }
         }
     }

@@ -46,7 +46,8 @@ namespace Shutdown
             {
                 _closeHandlesList.Add(new CloseOpenHandlesItem
                 {
-                    Name = volumeName,
+                    IsVolume = true,
+                    NameOrPath = volumeName,
                     FlushObjects = opts.CloseHandles?.FlushObjects ?? false
                 });
             }
@@ -92,6 +93,19 @@ namespace Shutdown
             _actions.Add(shutdownVms);
         }
 
+        private void BuildCloseHandlePaths()
+        {
+            foreach (var pathSpec in _options.CloseHandles)
+            {
+                if (!pathSpec.Value.Enable) continue;
+                _closeHandlesList.Add(new CloseOpenHandlesItem
+                {
+                    IsVolume = false,
+                    NameOrPath = pathSpec.Key
+                });
+            }
+        }
+
         private void BuildVolumes()
         {
             if (_options.Volumes == null) return;
@@ -103,7 +117,7 @@ namespace Shutdown
             var closeHandles = _factories.closeOpenHandles.Create(new CloseOpenHandlesParams
             {
                 DryRun = _options.DryRun,
-                Volumes = _closeHandlesList
+                Paths = _closeHandlesList
             });
             var dismountVolumes = _factories.dismountVolumes.Create(new DismountVolumesParams
             {
@@ -144,6 +158,7 @@ namespace Shutdown
             }
             else
             {
+                BuildCloseHandlePaths();
                 BuildVolumes();
                 BuildIscsiTargets();
                 BuildVirtualMachines();
