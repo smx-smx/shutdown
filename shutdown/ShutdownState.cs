@@ -26,7 +26,6 @@ namespace Shutdown
         public void SetShutdownStatusMessage(string? msg)
         {
             if (_hWND == null) return;
-            PInvoke.ShutdownBlockReasonDestroy(_hWND.Value);
             PInvoke.ShutdownBlockReasonCreate(_hWND.Value, msg ?? string.Empty);
         }
     }
