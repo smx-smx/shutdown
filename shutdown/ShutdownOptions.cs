@@ -44,10 +44,21 @@ namespace Shutdown
         Hard
     }
 
+    public class DiskOfflineSettings
+    {
+        public bool Enable { get; set; }
+    }
+
+    public class OwningDiskSettings
+    {
+        public DiskOfflineSettings? Offline { get; set; }
+    }
+
     public class VolumeOptions
     {
         public DismountVolumeOptions? Dismount { get; set; }
         public CloseHandlesOptions? CloseHandles { get; set; }
+        public OwningDiskSettings? OwningDisks { get; set; }
     }
 
     public class KillProcessOptions

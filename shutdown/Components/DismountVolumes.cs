@@ -7,10 +7,12 @@
  */
 #endregion
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32.SafeHandles;
 using ShutdownLib;
 using Smx.SharpIO.Memory;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -34,28 +36,62 @@ namespace Shutdown.Components
             _factory = factory;
         }
 
-        public DismountVolumes Create(HashSet<string> volumes)
+        public DismountVolumes Create(DismountVolumesParams opts)
         {
             var logger = _factory.CreateLogger<DismountVolumes>();
-            return new DismountVolumes(volumes, logger);
+            return new DismountVolumes(opts, logger);
         }
+    }
+
+    public class DismountVolumeItem
+    {
+        public required string VolumeLetter { get; set; }
+        public required bool Dismount { get; set; }
+        public required bool OfflineDisks { get; set; }
+    }
+
+    public class DismountVolumesParams
+    {
+        public required ICollection<DismountVolumeItem> Volumes { get; set; }
     }
 
     public class DismountVolumes : IAction
     {
-        private readonly HashSet<string> _volumes;
+        private readonly HashSet<string> _offlinedVolumes;
+        private readonly HashSet<uint> _offlinedDisks;
+        private readonly Dictionary<string, HashSet<string>> _volumeToDisk;
         private readonly ILogger<DismountVolumes> _logger;
+        private readonly DismountVolumesParams _opts;
 
         public DismountVolumes(
-            HashSet<string> volumes,
+            DismountVolumesParams opts,
             ILogger<DismountVolumes> logger
         )
         {
-            _volumes = volumes;
+            _opts = opts;
             _logger = logger;
+            _offlinedVolumes = new HashSet<string>();
+            _offlinedDisks = new HashSet<uint>();
+            _volumeToDisk = new Dictionary<string, HashSet<string>>();
         }
 
-        private SafeHandle OpenVolume(string volumeLetter)
+        private static SafeFileHandle OpenDisk(uint diskNumber)
+        {
+            var diskPath = @$"\\?\PhysicalDrive{diskNumber}";
+            var hDisk = PInvoke.CreateFile(diskPath,
+                (uint)(DesiredAccess.GENERIC_READ | DesiredAccess.GENERIC_WRITE),
+                FILE_SHARE_MODE.FILE_SHARE_READ | FILE_SHARE_MODE.FILE_SHARE_WRITE,
+                null, FILE_CREATION_DISPOSITION.OPEN_EXISTING,
+                0, null
+            );
+            if (hDisk == null || hDisk.IsInvalid)
+            {
+                throw new Win32Exception();
+            }
+            return hDisk;
+        }
+
+        private static SafeFileHandle OpenVolume(string volumeLetter)
         {
             var hVolume = PInvoke.CreateFile(
                 @$"\\.\{volumeLetter}",
@@ -86,7 +122,36 @@ namespace Shutdown.Components
             Console.WriteLine(buf.Size);
         }
 
-        private SafeHandle? GetDiskFromVolume(SafeHandle hVolume)
+        private static HashSet<uint> GetDiskNumbersFromVolume(string volumeLetter)
+        {
+            using var hVolume = OpenVolume(volumeLetter);
+            var extents = new VOLUME_DISK_EXTENTS();
+            uint dwBytesReturned;
+            unsafe
+            {
+                if (!PInvoke.DeviceIoControl(
+                    hVolume, PInvoke.IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+                    null, 0,
+                    &extents, (uint)sizeof(VOLUME_DISK_EXTENTS),
+                    &dwBytesReturned, null
+                ))
+                {
+                    throw new Win32Exception();
+                }
+            }
+
+            if (extents.NumberOfDiskExtents < 1)
+            {
+                return new HashSet<uint>();
+            }
+
+            return extents.Extents
+                .AsSpan((int)extents.NumberOfDiskExtents).ToArray()
+                .Select(ext => ext.DiskNumber)
+                .ToHashSet();
+        }
+
+        private ICollection<SafeFileHandle> GetDisksFromVolume(SafeHandle hVolume)
         {
             var extents = new VOLUME_DISK_EXTENTS();
             uint dwBytesReturned;
@@ -105,21 +170,14 @@ namespace Shutdown.Components
 
             if (extents.NumberOfDiskExtents < 1)
             {
-                return null;
-            }
-            var diskNumber = extents.Extents[0].DiskNumber;
-            var hDisk = PInvoke.CreateFile(@$"\\?\PhysicalDrive{diskNumber}",
-                (uint)(DesiredAccess.GENERIC_READ | DesiredAccess.GENERIC_WRITE),
-                FILE_SHARE_MODE.FILE_SHARE_READ | FILE_SHARE_MODE.FILE_SHARE_WRITE,
-                null, FILE_CREATION_DISPOSITION.OPEN_EXISTING,
-                0, null);
-
-            if (hVolume == null || hVolume.IsInvalid)
-            {
-                throw new Win32Exception();
+                return Array.Empty<SafeFileHandle>();
             }
 
-            return hDisk;
+            var diskHandles = extents.Extents
+                .AsSpan((int)extents.NumberOfDiskExtents).ToArray()
+                .Select(ext => OpenDisk(ext.DiskNumber));
+
+            return diskHandles.ToArray();
         }
 
         private void LockVolume(SafeHandle hVolume)
@@ -132,6 +190,39 @@ namespace Shutdown.Components
                     null, 0,
                     null, 0,
                     &dwBytesReturned, null
+                ))
+                {
+                    throw new Win32Exception();
+                }
+            }
+        }
+
+        private void OfflineDisk(SafeFileHandle hDisk)
+        {
+            var attrs = new SET_DISK_ATTRIBUTES
+            {
+                Version = (uint)Unsafe.SizeOf<SET_DISK_ATTRIBUTES>(),
+                Attributes = PInvoke.DISK_ATTRIBUTE_OFFLINE,
+                AttributesMask = PInvoke.DISK_ATTRIBUTE_OFFLINE,
+            };
+            unsafe
+            {
+                uint numBytesReturned = 0;
+                if (!PInvoke.DeviceIoControl(
+                    hDisk,
+                    PInvoke.IOCTL_DISK_SET_DISK_ATTRIBUTES,
+                    &attrs,
+                    attrs.Version, // aka sizeof
+                    null, 0,
+                    &numBytesReturned, null
+                ))
+                {
+                    throw new Win32Exception();
+                }
+                // Invalidates the cached partition table and re-enumerates the device.
+                if (!PInvoke.DeviceIoControl(
+                    hDisk, PInvoke.IOCTL_DISK_UPDATE_PROPERTIES,
+                    null, 0, null, 0, &numBytesReturned, null
                 ))
                 {
                     throw new Win32Exception();
@@ -173,9 +264,31 @@ namespace Shutdown.Components
             }
         }
 
-        private void DismountVolume(string volumeLetter)
+        private void DismountVolume(ShutdownState state, DismountVolumeItem volume)
         {
-            using var hVolume = OpenVolume(volumeLetter);
+            if (_offlinedVolumes.Contains(volume.VolumeLetter))
+            {
+                _logger.LogWarning($"Volume {volume.VolumeLetter} already offline, skipping");
+                return;
+            }
+
+            bool doOffline = true;
+            var diskNumbers = GetDiskNumbersFromVolume(volume.VolumeLetter);
+            foreach (var disk in diskNumbers)
+            {
+                if (_offlinedDisks.Contains(disk))
+                {
+                    /** 
+                      * one of the disks is already offline
+                      * so this volume must be on a disk that was offlined before
+                      */
+                    _logger.LogWarning($"Skipping volume offline, since disk {disk} is already offline");
+                    doOffline = false;
+                    break;
+                }
+            }
+
+            using var hVolume = OpenVolume(volume.VolumeLetter);
 
             //LockVolume(hVolume);
             /*using var hDisk = GetDiskFromVolume(hVolume);
@@ -185,18 +298,38 @@ namespace Shutdown.Components
             }*/
 
 
+            var disksToOffline = volume.OfflineDisks
+                ? diskNumbers
+                : new HashSet<uint>();
+
             //LockVolume(hVolume);
-            DismountVolume(hVolume);
-            OfflineVolume(hVolume);
+            if (doOffline)
+            {
+                state.SetShutdownStatusMessage($"Offline volume: {volume.VolumeLetter}");
+                DismountVolume(hVolume);
+                OfflineVolume(hVolume);
+            }
+            _offlinedVolumes.Add(volume.VolumeLetter);
+
+            foreach (var diskNo in disksToOffline)
+            {
+                if (_offlinedDisks.Contains(diskNo))
+                {
+                    _logger.LogWarning($"Disk {diskNo} already offline, skipping");
+                }
+                using var hDisk = OpenDisk(diskNo);
+                state.SetShutdownStatusMessage($"Offline disk: {diskNo}");
+                OfflineDisk(hDisk);
+                _offlinedDisks.Add(diskNo);
+            }
         }
 
         public void Execute(ShutdownState state)
         {
-            foreach (var volume in _volumes)
+            foreach (var volume in _opts.Volumes)
             {
-                _logger.LogInformation($"Dismounting volume: {volume}");
-                state.SetShutdownStatusMessage($"Offline volume: {volume}");
-                DismountVolume(volume);
+                _logger.LogInformation($"Dismounting volume: {volume.VolumeLetter}");
+                DismountVolume(state, volume);
             }
         }
     }

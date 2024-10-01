@@ -22,7 +22,7 @@ namespace Shutdown
         private ShutdownOptions _options;
 
         private ICollection<CloseOpenHandlesItem> _closeHandlesList;
-        private HashSet<string> _dismountVolumesList;
+        private ICollection<DismountVolumeItem> _dismountVolumesList;
 
         private ShutdownActionFactories _factories;
 
@@ -36,7 +36,7 @@ namespace Shutdown
             _options = options;
 
             _closeHandlesList = new List<CloseOpenHandlesItem>();
-            _dismountVolumesList = new HashSet<string>();
+            _dismountVolumesList = new List<DismountVolumeItem>();
         }
 
         private void AddVolume(string volumeName, VolumeOptions opts)
@@ -54,7 +54,12 @@ namespace Shutdown
             enable = opts.Dismount?.Enable ?? true;
             if (enable)
             {
-                _dismountVolumesList.Add(volumeName);
+                _dismountVolumesList.Add(new DismountVolumeItem
+                {
+                    Dismount = enable,
+                    VolumeLetter = volumeName,
+                    OfflineDisks = opts.OwningDisks?.Offline?.Enable ?? false
+                });
             }
         }
 
@@ -100,7 +105,10 @@ namespace Shutdown
                 DryRun = _options.DryRun,
                 Volumes = _closeHandlesList
             });
-            var dismountVolumes = _factories.dismountVolumes.Create(_dismountVolumesList);
+            var dismountVolumes = _factories.dismountVolumes.Create(new DismountVolumesParams
+            {
+                Volumes = _dismountVolumesList
+            });
 
             _actions.Add(closeHandles);
             _actions.Add(dismountVolumes);
@@ -137,8 +145,8 @@ namespace Shutdown
             else
             {
                 BuildVolumes();
-                BuildVirtualMachines();
                 BuildIscsiTargets();
+                BuildVirtualMachines();
             }
             return _actions;
         }
