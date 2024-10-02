@@ -13,6 +13,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Shutdown.Components;
+using ShutdownLib;
 
 namespace Shutdown
 {

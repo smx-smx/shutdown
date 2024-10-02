@@ -82,10 +82,7 @@ public class ProcessKillerAction : IAction
         _opts = opts;
         _logger = logger;
         _factory = factory;
-
-        var exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        if (exeDir == null) throw new InvalidOperationException(nameof(exeDir));
-        _processSignaler = Path.Combine(exeDir, "ProcessSignaler.exe");
+        _processSignaler = ShutdownGlobals.GetExeFile(ShutdownProgramType.ProcessSignaler);
     }
 
     private bool KillGuiApp(Process process, HWND hWnd, PerProcessSettings settings)
@@ -125,7 +122,8 @@ public class ProcessKillerAction : IAction
         {
             mainModule = process.MainModule;
             return mainModule != null;
-        } catch (Exception)
+        }
+        catch (Exception)
         {
             mainModule = null;
             return false;
@@ -312,8 +310,8 @@ public class ProcessKillerAction : IAction
         var exclusions = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase)
         {
             "VsDebugConsole.exe",
-            "NtQueryNameWorker.exe",
-            "ProcessSignaler.exe",
+            Path.GetFileName(ShutdownGlobals.GetExeFile(ShutdownProgramType.NtQueryNameWorker)),
+            Path.GetFileName(ShutdownGlobals.GetExeFile(ShutdownProgramType.ProcessSignaler)),
             thisMainMod.ModuleName
         };
 

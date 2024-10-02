@@ -7,6 +7,7 @@
  */
 #endregion
 using Microsoft.Extensions.Logging;
+using ShutdownLib;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

@@ -21,7 +21,7 @@ using Windows.Win32;
 using Windows.Win32.System.Threading;
 using static ShutdownLib.Ntdll;
 
-namespace Shutdown
+namespace ShutdownLib
 {
     public class ProcessUtil
     {

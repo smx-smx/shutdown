@@ -27,17 +27,6 @@ using System.IO.Pipes;
 
 namespace Shutdown;
 
-public enum ShutdownMode
-{
-    /// <summary>
-    /// Pre-Shutdown actions
-    /// </summary>
-    PreShutdown,
-    /// <summary>
-    /// Shutdown actions
-    /// </summary>
-    Shutdown
-}
 
 public class ShutdownWatcherFactory
 {
@@ -85,16 +74,34 @@ public class ShutdownWatcher : IDisposable
         _logger = logger;
         _hInstance = PInvoke.GetModuleHandle("");
         _wndProcDelegate = new WNDPROC(WndProc);
+        _debugMode = debugMode;
     }
 
-    private void DelayShutdown(string tag, TimeSpan delay)
+    private async Task DelayShutdown(string tag, TimeSpan delay)
     {
         _logger.LogDebug($"DelayShutdown: sleeping {delay.TotalSeconds} seconds");
-        PInvoke.ShutdownBlockReasonDestroy(_hWnd);
         PInvoke.ShutdownBlockReasonCreate(_hWnd, $"[{tag}]: Waiting {delay.TotalSeconds} seconds");
-        Thread.Sleep(delay);
+        await Task.Delay(delay);
     }
 
+    private Process RunShutdownAbortMonitor()
+    {
+        var pi = new ProcessStartInfo
+        {
+            FileName = ShutdownGlobals.GetExeFile(ShutdownProgramType.ShutdownAbortMonitor)
+        };
+        pi.ArgumentList.Add("--");
+        if (_debugMode)
+        {
+            pi.ArgumentList.Add("-debug");
+        }
+        var monitor = Process.Start(pi);
+        if (monitor == null)
+        {
+            throw new InvalidOperationException("Failed to spawn Shutdown Abort Monitor");
+        }
+        return monitor;
+    }
 
     private LRESULT WndProc(HWND hWnd, uint uMsg, WPARAM wParam, LPARAM lParam)
     {
@@ -114,16 +121,20 @@ public class ShutdownWatcher : IDisposable
                 _logger.LogInformation("Got WM_QUERYENDSESSION");
                 if (_mode == ShutdownMode.PreShutdown)
                 {
-                    Task.Run(() =>
+                    Task.Run(async () =>
                     {
+                        _logger.LogInformation("Starting Shutdown Abort Monitor");
+                        RunShutdownAbortMonitor();
+
                         _actions.Run(_mode, _hWnd);
                         _logger.LogInformation("Pre-Shutdown completed");
                         if (_debugMode)
                         {
-                            DelayShutdown("pre", TimeSpan.FromSeconds(60));
+                            await DelayShutdown("pre", TimeSpan.FromSeconds(60));
                         }
                         // we can't clear the shutdown block reason from here, since we're in another thread
                         // let's be brutal, for now
+                        _logger.LogInformation("Pre-Shutdown: Exiting");
                         Environment.Exit(0);
                     });
                     // Doesn't block shutdown, but stop signal propagation (undocumented?)
@@ -134,14 +145,14 @@ public class ShutdownWatcher : IDisposable
                 // (actually we can't block shutdown anymore since Windows Vista)
                 return new LRESULT(1);
             case PInvoke.WM_ENDSESSION:
-                _logger.LogInformation("Got WM_ENDSESSION");
-                if (_mode == ShutdownMode.PreShutdown)
+                _logger.LogInformation($"Got WM_ENDSESSION ({wParam})");
+                if (wParam == 0)
                 {
                     return new LRESULT(1);
                 }
-                if (wParam == 0)
+
+                if (_mode == ShutdownMode.PreShutdown)
                 {
-                    // not processed
                     return new LRESULT(1);
                 }
 
@@ -187,12 +198,18 @@ public class ShutdownWatcher : IDisposable
             throw new Win32Exception();
         }
 
+        var windowTitle = _mode switch
+        {
+            ShutdownMode.PreShutdown => "ShutdownTool - Pre",
+            _ => "ShutdownTool"
+        };
+
         HWND hWnd;
         unsafe
         {
             hWnd = PInvoke.CreateWindowEx(
                 WINDOW_EX_STYLE.WS_EX_OVERLAPPEDWINDOW,
-                CLASS_NAME, "",
+                CLASS_NAME, windowTitle,
                 WINDOW_STYLE.WS_OVERLAPPEDWINDOW,
                 0, 0, 0, 0,
                 HWND.Null, null, currentInstance,

@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NtQueryNameWorker\NtQueryNameWorker.csproj" />
     <ProjectReference Include="..\ProcessSignaler\ProcessSignaler.csproj" />
+    <ProjectReference Include="..\ShutdownAbortMonitor\ShutdownAbortMonitor.csproj" />
     <ProjectReference Include="..\shutdownLib\shutdownLib.csproj" />
   </ItemGroup>
 

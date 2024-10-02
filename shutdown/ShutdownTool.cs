@@ -140,11 +140,12 @@ class ShutdownTool
         }
 #endif
 
-        var args_it = args.GetEnumerator();
+
         var runNow = false;
         var shutdownMode = ShutdownMode.Shutdown;
         var debugMode = false;
 
+        var args_it = args.GetEnumerator();
         while (args_it.MoveNext())
         {
             var res = true;
@@ -168,6 +169,11 @@ class ShutdownTool
             }
         }
 
+        var modeIdent = ShutdownGlobals.GetModeIdentity(shutdownMode);
+
+        var pidFile = ShutdownGlobals.GetPidFile(shutdownMode);
+        File.WriteAllText(pidFile, Process.GetCurrentProcess().Id.ToString());
+
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddLogging(log =>
         {
@@ -176,12 +182,7 @@ class ShutdownTool
             {
                 opts.FormatLogFileName = fName =>
                 {
-                    return string.Format(fName, shutdownMode switch
-                    {
-                        ShutdownMode.PreShutdown => "pre",
-                        ShutdownMode.Shutdown => "normal",
-                        _ => Enum.GetName(shutdownMode)
-                    });
+                    return string.Format(fName, modeIdent);
                 };
             });
         });
@@ -209,25 +210,23 @@ class ShutdownTool
         // spawn a copy for normal shutdown
         if (shutdownMode == ShutdownMode.PreShutdown && !runNow)
         {
-            var thisProc = Process.GetCurrentProcess();
-            if (thisProc == null)
+            var normalModeProc = ShutdownGlobals.GetProcess(ShutdownMode.Shutdown);
+            /**
+              * spawn normal mode runner, if not already running
+              * the runner might be already running if shutdown got interrupted and we were respawned by ShutdownAbortMonitor
+              **/
+            if (normalModeProc == null)
             {
-                throw new InvalidOperationException("Failed to get current process");
+                var pi = new ProcessStartInfo
+                {
+                    FileName = ShutdownGlobals.GetExeFile(ShutdownProgramType.Shutdown)
+                };
+                if (debugMode)
+                {
+                    pi.ArgumentList.Add("-debug");
+                }
+                Process.Start(pi);
             }
-            var mainMod = thisProc.MainModule;
-            if (mainMod == null)
-            {
-                throw new InvalidOperationException("Failed to get process main module");
-            }
-            var pi = new ProcessStartInfo
-            {
-                FileName = mainMod.FileName
-            };
-            if (debugMode)
-            {
-                pi.ArgumentList.Add("-debug");
-            }
-            Process.Start(pi);
         }
 
         LoggerProviderOptions.RegisterProviderOptions<EventLogSettings, EventLogLoggerProvider>(builder.Services);

@@ -48,7 +48,7 @@ namespace Shutdown
         {
             var exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             if (exeDir == null) throw new InvalidOperationException(nameof(exeDir));
-            _workerPath = Path.Combine(exeDir, "NtQueryNameWorker.exe");
+            _workerPath = ShutdownGlobals.GetExeFile(ShutdownProgramType.NtQueryNameWorker);
         }
 
         private void StopImpl()

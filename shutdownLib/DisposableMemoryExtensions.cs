@@ -14,7 +14,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Windows.Win32.Foundation;
 
-namespace Shutdown
+namespace ShutdownLib
 {
     public static class DisposableMemoryExtensions
     {

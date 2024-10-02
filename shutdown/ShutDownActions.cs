@@ -8,6 +8,7 @@
 #endregion
 using Microsoft.Extensions.Options;
 using Shutdown.Components;
+using ShutdownLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,7 +52,8 @@ namespace Shutdown
                 if (_hasRun) return;
                 _hasRun = true;
                 RunActions(mode);
-            } finally
+            }
+            finally
             {
                 _sema.Release();
             }
