@@ -17,7 +17,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
     <PackageReference Include="NReco.Logging.File" Version="1.2.1" />
-    <PackageReference Include="Smx.SharpIO" Version="1.1.0-rc" />
+    <PackageReference Include="Smx.SharpIO" Version="1.1.0" />
   </ItemGroup>
 
   <ItemGroup>
