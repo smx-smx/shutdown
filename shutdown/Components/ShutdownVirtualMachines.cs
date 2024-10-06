@@ -89,6 +89,7 @@ namespace Shutdown.Components
         public bool DryRun { get; set; } = false;
         public ShutdownVmOptions DefaultOptions { get; set; } = DefaultVmOptions;
         public IList<ShutdownVmOptions> Items { get; set; } = new List<ShutdownVmOptions>();
+        public ShutdownVirtualMachinesFlags Flags { get; set; }
     }
 
     public class ShutdownVirtualMachines : IAction
@@ -381,58 +382,61 @@ namespace Shutdown.Components
                 _logger.LogInformation($"- {vm.Value.Item1.VmxPath}");
             }
 
-            var tasks = new List<Task>();
-
-
-            var vmxPaths = new HashSet<string>();
-
-            _logger.LogInformation("Shutting down Normal VMs in parallel");
-            foreach (var vm in shutdownOrder.Where(itm => itm.Key >= 0))
+            if (_opts.Flags.HasFlag(ShutdownVirtualMachinesFlags.Normal))
             {
-                var vmxDir = Path.GetDirectoryName(vm.Value.Item1.VmxPath);
-                var vmxDrive = Path.GetPathRoot(vmxDir);
-                if (vmxDir != null && vmxDrive != null)
+                var tasks = new List<Task>();
+                var vmxPaths = new HashSet<string>();
+
+                _logger.LogInformation("Shutting down Normal VMs in parallel");
+                foreach (var vm in shutdownOrder.Where(itm => itm.Key >= 0))
                 {
-                    vmxPaths.Add(vmxDrive);
-                    vmxPaths.Add(vmxDir);
+                    var vmxDir = Path.GetDirectoryName(vm.Value.Item1.VmxPath);
+                    var vmxDrive = Path.GetPathRoot(vmxDir);
+                    if (vmxDir != null && vmxDrive != null)
+                    {
+                        vmxPaths.Add(vmxDrive);
+                        vmxPaths.Add(vmxDir);
+                    }
+                    tasks.Add(ProcessVmAsync(state, vm.Value.Item1, vm.Value.Item2));
                 }
-                tasks.Add(ProcessVmAsync(state, vm.Value.Item1, vm.Value.Item2));
-            }
-            Task.WaitAll(tasks.ToArray());
-            tasks.Clear();
+                Task.WaitAll(tasks.ToArray());
+                tasks.Clear();
 
-            foreach (var path in vmxPaths)
-            {
-                _closeHandleItems.Add(new CloseOpenHandlesItem
+                foreach (var path in vmxPaths)
                 {
-                    IsVolume = false,
-                    NameOrPath = path,
-                    FlushObjects = true
-                });
+                    _closeHandleItems.Add(new CloseOpenHandlesItem
+                    {
+                        IsVolume = false,
+                        NameOrPath = path,
+                        FlushObjects = true
+                    });
+                }
+
+                /**
+                 * we need to flush and close pending writes to \\truenas\VirtualMachines
+                 * before we shutdown the VM providing the SMB server
+                 * otherwise a delay write error will occur, causing shutdown to be aborted.
+                 * In this case, instead of shutting down, we'll be brought back to the login screen
+                 **/
+                _logger.LogInformation("Flushing and closing open handles");
+                foreach (var path in _closeHandleItems)
+                {
+                    _logger.LogInformation($" - path: {path.NameOrPath}");
+                }
+                _closeHandlesFactory.Create(new CloseOpenHandlesParams
+                {
+                    DryRun = _opts.DryRun,
+                    Paths = _closeHandleItems
+                }).Execute(state);
             }
 
-            /**
-             * we need to flush and close pending writes to \\truenas\VirtualMachines
-             * before we shutdown the VM providing the SMB server
-             * otherwise a delay write error will occur, causing shutdown to be aborted.
-             * In this case, instead of shutting down, we'll be brought back to the login screen
-             **/
-            _logger.LogInformation("Flushing and closing open handles");
-            foreach (var path in _closeHandleItems)
+            if (_opts.Flags.HasFlag(ShutdownVirtualMachinesFlags.Critical))
             {
-                _logger.LogInformation($" - path: {path.NameOrPath}");
-            }
-            _closeHandlesFactory.Create(new CloseOpenHandlesParams
-            {
-                DryRun = _opts.DryRun,
-                Paths = _closeHandleItems
-            }).Execute(state);
-
-
-            _logger.LogInformation("Shutting down Critical VMs, sequentially");
-            foreach (var vm in shutdownOrder.Where(itm => itm.Key < 0))
-            {
-                ProcessVm(state, vm.Value.Item1, vm.Value.Item2);
+                _logger.LogInformation("Shutting down Critical VMs, sequentially");
+                foreach (var vm in shutdownOrder.Where(itm => itm.Key < 0))
+                {
+                    ProcessVm(state, vm.Value.Item1, vm.Value.Item2);
+                }
             }
         }
     }

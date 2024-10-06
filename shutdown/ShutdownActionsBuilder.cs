@@ -17,6 +17,14 @@ using ShutdownLib;
 
 namespace Shutdown
 {
+    [Flags]
+    public enum ShutdownVirtualMachinesFlags
+    {
+        Normal = 1 << 0,
+        Critical = 1 << 1
+    }
+
+
     public class ShutdownActionsBuilder
     {
         private IList<IAction> _actions;
@@ -81,14 +89,15 @@ namespace Shutdown
             _actions.Add(logoutAction);
         }
 
-        private void BuildVirtualMachines()
+        private void BuildVirtualMachines(ShutdownVirtualMachinesFlags flags)
         {
             if (_options.VirtualMachines == null) return;
             var shutdownVms = _factories.shutdownVms.Create(new ShutdownVmParams
             {
                 DryRun = _options.DryRun,
                 DefaultOptions = ShutdownVmParams.DefaultVmOptions,
-                Items = _options.VirtualMachines.Items
+                Items = _options.VirtualMachines.Items,
+                Flags = flags
             });
 
             _actions.Add(shutdownVms);
@@ -156,13 +165,13 @@ namespace Shutdown
             if (mode == ShutdownMode.PreShutdown)
             {
                 BuildProcessKiller();
-            }
-            else
+            } else
             {
                 BuildCloseHandlePaths();
                 BuildVolumes();
+                BuildVirtualMachines(ShutdownVirtualMachinesFlags.Normal);
                 BuildIscsiTargets();
-                BuildVirtualMachines();
+                BuildVirtualMachines(ShutdownVirtualMachinesFlags.Critical);
             }
             return _actions;
         }
