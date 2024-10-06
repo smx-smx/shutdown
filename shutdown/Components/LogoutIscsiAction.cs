@@ -98,8 +98,8 @@ namespace Shutdown.Components
                 var res = PInvoke.LogoutIScsiTarget(ref sid);
                 if (res != (uint)Win32Error.ERROR_SUCCESS)
                 {
-                    _logger.LogError($"Failed to logout iSCSI initiator {sess.Key}: "
-                        + "0x{Marshal.GetLastPInvokeError():X} - {Marshal.GetLastPInvokeErrorMessage()}");
+                    _logger.LogError($"Failed to logout iSCSI target {sess.Key}: "
+                        + $"0x{Marshal.GetLastPInvokeError():X} - {Marshal.GetLastPInvokeErrorMessage()}");
                     continue;
                 }
             }
