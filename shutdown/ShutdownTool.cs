@@ -115,8 +115,8 @@ class ShutdownTool
 
     public int Run(string[] args)
     {
-        var ownDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-        if (ownDir == null)
+        var ownDir = AppContext.BaseDirectory;
+        if (string.IsNullOrEmpty(ownDir))
         {
             throw new InvalidOperationException("Failed to get execution directory");
         }

@@ -46,8 +46,6 @@ namespace Shutdown
 
         static NtQueryNameWorker()
         {
-            var exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            if (exeDir == null) throw new InvalidOperationException(nameof(exeDir));
             _workerPath = ShutdownGlobals.GetExeFile(ShutdownProgramType.NtQueryNameWorker);
         }
 
@@ -86,8 +84,7 @@ namespace Shutdown
             {
                 if (_pipeReader == null || _cts == null) return null;
                 return await _pipeReader.ReadLineAsync(_cts.Token);
-            }
-            catch (OperationCanceledException)
+            } catch (OperationCanceledException)
             {
                 return null;
             }
@@ -157,8 +154,7 @@ namespace Shutdown
                 var res = _fetchTask.Result;
                 NotifyReady();
                 return res;
-            }
-            else
+            } else
             {
                 RestartAsync();
                 return null;
@@ -171,8 +167,7 @@ namespace Shutdown
             try
             {
                 return GetNameImpl(handles, index, timeoutMs);
-            }
-            finally
+            } finally
             {
                 _sema.Release();
             }
@@ -184,8 +179,7 @@ namespace Shutdown
             try
             {
                 act();
-            }
-            finally
+            } finally
             {
                 _sema.Release();
             }
