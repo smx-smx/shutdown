@@ -53,6 +53,7 @@ namespace ShutdownLib
         STATUS_ACCESS_DENIED = 0xC0000022,
         STATUS_OBJECT_PATH_INVALID = 0xC0000039,
         STATUS_NOT_SUPPORTED = 0xC00000BB,
+        STATUS_INVALID_HANDLE = 0xC0000008,
         STATUS_TIMEOUT = 0x00000102
     }
 
@@ -240,7 +241,9 @@ namespace ShutdownLib
 
     public struct OBJECT_TYPES_INFORMATION
     {
+#pragma warning disable CS0649
         private nint _NumberOfTypes;
+#pragma warning restore CS0649
         public uint NumberOfTypes => (uint)_NumberOfTypes;
 
         public unsafe nint Address => new nint((byte*)Unsafe.AsPointer(ref this));

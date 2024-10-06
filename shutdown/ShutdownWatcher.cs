@@ -160,7 +160,7 @@ public class ShutdownWatcher : IDisposable
                 PInvoke.ShutdownBlockReasonDestroy(hWnd);
                 if (_debugMode)
                 {
-                    DelayShutdown("norm", TimeSpan.FromSeconds(60));
+                    DelayShutdown("norm", TimeSpan.FromSeconds(60)).RunSynchronously();
                 }
                 return new LRESULT(0);
 #if false

@@ -47,16 +47,21 @@ namespace Shutdown.Components
 
     public class CloseOpenHandlesFactory
     {
-        private ILoggerFactory _factory;
-        public CloseOpenHandlesFactory(ILoggerFactory factory)
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly INtQueryNameWorkerProvider _workerProvider;
+
+        public CloseOpenHandlesFactory(
+            ILoggerFactory loggerFactory,
+            INtQueryNameWorkerProvider workerProvider
+        )
         {
-            _factory = factory;
+            _loggerFactory = loggerFactory;
+            _workerProvider = workerProvider;
         }
 
         public CloseOpenHandlesAction Create(CloseOpenHandlesParams opts)
         {
-            var logger = _factory.CreateLogger<CloseOpenHandlesAction>();
-            return new CloseOpenHandlesAction(opts, logger);
+            return new CloseOpenHandlesAction(opts, _loggerFactory, _workerProvider);
         }
     }
 
@@ -165,16 +170,13 @@ namespace Shutdown.Components
 
         public CloseOpenHandlesAction(
             CloseOpenHandlesParams opts,
-            ILogger<CloseOpenHandlesAction> logger,
-            bool useNative = true
+            ILoggerFactory loggerFactory,
+            INtQueryNameWorkerProvider nameWorkerProvider
         )
         {
             _volumes = opts;
-            _logger = logger;
-            _worker = useNative
-                // NOTE: native worker is experimental
-                ? new NtQueryNameNative()
-                : new NtQueryNameIpc();
+            _logger = loggerFactory.CreateLogger<CloseOpenHandlesAction>();
+            _worker = nameWorkerProvider.GetWorker();
         }
 
         private unsafe string? FileHandleGetName(SafeHandle handle)
@@ -199,8 +201,7 @@ namespace Shutdown.Components
                 {
                     _logger.LogError($"Sync failed: {handleName}");
                 }
-            }
-            else
+            } else
             {
                 using var thisProc = PInvoke.GetCurrentProcess_SafeHandle();
                 using var hProc = PInvoke.OpenProcess_SafeHandle(
@@ -290,15 +291,31 @@ namespace Shutdown.Components
 
                 var safeHandle = new SafeNtHandle(h.HandleValue, false);
 
-                var name = _worker.GetName(handles, i);
-                if (name == null) continue;
-                //_logger.LogDebug(name);
+                _logger.LogTrace($"OBJECT: 0x{handles[i].Object:X}, HANDLE: 0x{handles[i].HandleValue:X}");
+                var ntName = _worker.GetName(handles, i);
+                if (ntName == null) continue;
 
-                if (!name.StartsWith(pathPrefix)) continue;
+                bool found = ntName.StartsWith(pathPrefix, StringComparison.InvariantCultureIgnoreCase);
+                if (!found)
+                {
+                    const string NT_DEVICE_MUP = @"\Device\Mup\";
+
+                    if (pathPrefix.StartsWith(@"\\")
+                        && ntName.StartsWith(NT_DEVICE_MUP, StringComparison.CurrentCultureIgnoreCase
+                    ))
+                    {
+                        found = ntName.Substring(NT_DEVICE_MUP.Length)
+                            .StartsWith(pathPrefix.Substring(2));
+                    }
+                }
+
+                if (!found)
+                {
+                    continue;
+                }
 
                 var dryPrefix = _volumes.DryRun ? "[DRY] " : "";
-
-                _logger.LogDebug($"{dryPrefix}{h.UniqueProcessId}: {h.ObjectTypeIndex} - {h.HandleValue:X}");
+                _logger.LogDebug($"{dryPrefix}{h.UniqueProcessId}: {h.ObjectTypeIndex} - {h.HandleValue:X} - {ntName}");
 
 
 
@@ -309,7 +326,7 @@ namespace Shutdown.Components
 
                 var flush = flushObjects && h.ObjectTypeIndex == ObjectTypeFile.TypeIndex;
                 CloseHandle(
-                    name,
+                    ntName,
                     new HANDLE(h.HandleValue),
                     (uint)h.UniqueProcessId,
                     flush);
@@ -333,8 +350,7 @@ namespace Shutdown.Components
                     });
                     var volumePath = bufName.ToPWSTR().ToString();
                     CloseOpenHandles(volumePath, vol.FlushObjects);
-                }
-                else
+                } else
                 {
                     _logger.LogInformation($"Closing handles for path: {vol.NameOrPath}");
                     state.SetShutdownStatusMessage($"Closing path handles: {vol.NameOrPath}");

@@ -27,6 +27,8 @@ using Windows.Win32.System.Kernel;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+
 
 #if TARGET_64BIT
 using nint_t = System.Int64;
@@ -48,8 +50,6 @@ namespace Shutdown
         private nuint _stackBot;
         private nuint _stackTop;
         private SafeFileHandle _hEvent;
-
-        private CONTEXT _initialContext;
 
         private const int STACK_ARGV_MAX = 10;
 
@@ -113,6 +113,8 @@ namespace Shutdown
             return pTeb;
         }
 
+        private readonly ILogger<NtSyscallWorker> _logger;
+
 #if ALLOC_STACK
         private void AdjustThreadStack()
         {
@@ -148,8 +150,9 @@ namespace Shutdown
             return hThread;
         }
 
-        public NtSyscallWorker()
+        public NtSyscallWorker(ILogger<NtSyscallWorker> logger)
         {
+            _logger = logger;
             _mman = new MemoryAllocator(new VirtualMemoryManager
             {
                 ProtectionFlags = PAGE_PROTECTION_FLAGS.PAGE_READWRITE
@@ -219,7 +222,7 @@ namespace Shutdown
                 );
             }
 
-            Console.WriteLine($"tid: {tid:X}");
+            _logger.LogTrace($"tid: {tid:X}");
 
 #if false
             // use VirtualAlloc for aligned allocations and prevent STATUS_DATATYPE_MISALIGNMENT
@@ -246,14 +249,14 @@ namespace Shutdown
                 stackHigh = new nuint(pTeb.Value.NtTib.StackBase);
                 stackLow = new nuint(pTeb.Value.NtTib.StackLimit);
             }
-            Console.WriteLine($"StackHigh: {stackHigh:X}");
-            Console.WriteLine($"StackLow: {stackHigh:X}");
+            _logger.LogTrace($"StackHigh: {stackHigh:X}");
+            _logger.LogTrace($"StackLow: {stackHigh:X}");
 
             setupArgs.Value.hThread = hThread.ToHandle();
             setupArgs.Value.hEvent = _hEvent.ToHandle();
 
-            Console.WriteLine($"hThread: {hThread.ToHandle():X}");
-            Console.WriteLine($"hEvent: {_hEvent.ToHandle():X}");
+            _logger.LogTrace($"hThread: {hThread.ToHandle():X}");
+            _logger.LogTrace($"hEvent: {_hEvent.ToHandle():X}");
 
             ThreadRun(PInvoke.INFINITE, hThread);
             scPtr = setupArgs.Value.ScCtx;
@@ -265,7 +268,7 @@ namespace Shutdown
 
             scHandler = (nint)pCtx.Value.Rip;
 
-            Console.WriteLine($"stack context addr: {scPtr:X}");
+            _logger.LogTrace($"stack context addr: {scPtr:X}");
             return hThread;
         }
 
@@ -336,7 +339,7 @@ namespace Shutdown
 
             if (PInvoke.WaitForSingleObject(_hEvent, timeoutMilliseconds) != WAIT_EVENT.WAIT_OBJECT_0)
             {
-                Console.WriteLine("----------- RECOVER");
+                _logger.LogTrace("----------- RECOVER");
                 if (PInvoke.SuspendThread(_hThread) == unchecked((uint)-1))
                 {
                     throw new Win32Exception();
@@ -422,8 +425,7 @@ namespace Shutdown
             if (ThreadRun(timeoutMilliseconds))
             {
                 return (nint)pScCtx.Value.Rax;
-            }
-            else
+            } else
             {
                 return (nint)NtStatusCode.STATUS_TIMEOUT;
             }

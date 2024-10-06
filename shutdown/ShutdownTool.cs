@@ -250,6 +250,15 @@ class ShutdownTool
             });
         }
 
+        builder.Services.AddScoped<NtSyscallWorker>();
+        builder.Services.AddScoped<NtQueryNameNative>();
+        builder.Services.AddScoped<NtQueryNameWorkerProviderNative>();
+        builder.Services.AddScoped<NtQueryNameWorkerProviderIpc>();
+        builder.Services.AddSingleton<INtQueryNameWorkerProvider>((services) =>
+        {
+            return services.GetRequiredService<NtQueryNameWorkerProviderNative>();
+        });
+
         builder.Services.AddSingleton<DismountVolumesFactory>();
         builder.Services.AddSingleton<CloseOpenHandlesFactory>();
         builder.Services.AddSingleton<ShutdownVirtualMachinesFactory>();
@@ -285,17 +294,16 @@ class ShutdownTool
             {
                 host.Services.GetRequiredService<ShutDownActions>().Run(shutdownMode);
                 Console.WriteLine("- done");
-            }
-            else
+            } else
             {
                 host.Run();
             }
-        }
-        catch (Exception ex)
+        } catch (Exception ex)
         {
             mainLogger.LogError(ex, "Unhandled exception");
             return 1;
         }
+        mainLogger.LogInformation("exiting");
         return 0;
     }
 

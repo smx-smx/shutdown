@@ -12,6 +12,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
 using ShutdownLib;
 using Smx.SharpIO.Memory;
@@ -23,16 +24,19 @@ namespace Shutdown
 {
     public class NtQueryNameNative : INtQueryNameWorker, IDisposable
     {
+        private readonly ILogger<NtQueryNameNative> _logger;
         private NtSyscallWorker _worker;
         private SafeHandle _thisProc;
 
-        public NtQueryNameNative()
+        public NtQueryNameNative(
+            ILogger<NtQueryNameNative> logger,
+            NtSyscallWorker worker
+        )
         {
-            _worker = new NtSyscallWorker();
+            _logger = logger;
+            _worker = worker;
             _thisProc = PInvoke.GetCurrentProcess_SafeHandle();
         }
-
-        private int _callidx = 0;
 
         private string? GetHandleName(SafeHandle handle, uint dwProcessId)
         {
@@ -40,8 +44,7 @@ namespace Shutdown
             if (dwProcessId == (uint)Process.GetCurrentProcess().Id)
             {
                 dupHandle = new SafeFileHandle(handle.DangerousGetHandle(), false);
-            }
-            else
+            } else
             {
                 using var hProc = PInvoke.OpenProcess_SafeHandle(0
                     | PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE
@@ -64,7 +67,7 @@ namespace Shutdown
             }
 
             //const int timeoutMs = 10;
-            const int timeoutMs = 1;
+            const int timeoutMs = 10;
 
             NtStatusCode status = default;
             using var buf = Helpers.NtCallWithGrowableBuffer((buf) =>
@@ -85,6 +88,8 @@ namespace Shutdown
                     case NtStatusCode.STATUS_ACCESS_DENIED:
                     case NtStatusCode.STATUS_OBJECT_PATH_INVALID:
                     case NtStatusCode.STATUS_NOT_SUPPORTED:
+                    case NtStatusCode.STATUS_INVALID_HANDLE:
+                        _logger.LogTrace($"Fail: {Enum.GetName(status)}");
                         return NtStatusCode.SUCCESS;
                 }
                 return status;

@@ -12,6 +12,7 @@ using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
@@ -19,6 +20,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ShutdownLib;
 using Smx.SharpIO.Memory;
@@ -46,17 +48,21 @@ namespace Shutdown.Components
     public class ShutdownVirtualMachinesFactory
     {
         private readonly ILoggerFactory _factory;
-        public ShutdownVirtualMachinesFactory(ILoggerFactory factory)
+        private readonly INtQueryNameWorkerProvider _workerProvider;
+
+        public ShutdownVirtualMachinesFactory(
+            ILoggerFactory factory,
+            INtQueryNameWorkerProvider workerProvider
+        )
         {
             _factory = factory;
+            _workerProvider = workerProvider;
         }
 
         public ShutdownVirtualMachines Create(ShutdownVmParams opts)
         {
-            var logger = _factory.CreateLogger<ShutdownVirtualMachines>();
-            return new ShutdownVirtualMachines(logger, opts);
+            return new ShutdownVirtualMachines(_workerProvider, _factory, opts);
         }
-
     }
 
     public class VmInstance
@@ -91,13 +97,19 @@ namespace Shutdown.Components
 
         private readonly Dictionary<string, ShutdownVmOptions> vmxToOpts;
         private readonly ShutdownVmParams _opts;
+        private readonly CloseOpenHandlesFactory _closeHandlesFactory;
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly List<CloseOpenHandlesItem> _closeHandleItems;
 
         public ShutdownVirtualMachines(
-            ILogger<ShutdownVirtualMachines> logger,
+            INtQueryNameWorkerProvider workerProvider,
+            ILoggerFactory loggerFactory,
             ShutdownVmParams opts
         )
         {
-            _logger = logger;
+            _loggerFactory = loggerFactory;
+            _closeHandleItems = new List<CloseOpenHandlesItem>();
+            _logger = loggerFactory.CreateLogger<ShutdownVirtualMachines>();
             vmxToOpts = new Dictionary<string, ShutdownVmOptions>(StringComparer.InvariantCultureIgnoreCase);
             _opts = opts;
 
@@ -106,6 +118,8 @@ namespace Shutdown.Components
                 if (string.IsNullOrWhiteSpace(item.VmxPath)) continue;
                 vmxToOpts.Add(item.VmxPath, item);
             }
+
+            _closeHandlesFactory = new CloseOpenHandlesFactory(_loggerFactory, workerProvider);
         }
 
         private Dictionary<string, string> ParseVmx(string vmxPath)
@@ -369,13 +383,51 @@ namespace Shutdown.Components
 
             var tasks = new List<Task>();
 
+
+            var vmxPaths = new HashSet<string>();
+
             _logger.LogInformation("Shutting down Normal VMs in parallel");
             foreach (var vm in shutdownOrder.Where(itm => itm.Key >= 0))
             {
+                var vmxDir = Path.GetDirectoryName(vm.Value.Item1.VmxPath);
+                var vmxDrive = Path.GetPathRoot(vmxDir);
+                if (vmxDir != null && vmxDrive != null)
+                {
+                    vmxPaths.Add(vmxDrive);
+                    vmxPaths.Add(vmxDir);
+                }
                 tasks.Add(ProcessVmAsync(state, vm.Value.Item1, vm.Value.Item2));
             }
             Task.WaitAll(tasks.ToArray());
             tasks.Clear();
+
+            foreach (var path in vmxPaths)
+            {
+                _closeHandleItems.Add(new CloseOpenHandlesItem
+                {
+                    IsVolume = false,
+                    NameOrPath = path,
+                    FlushObjects = true
+                });
+            }
+
+            /**
+             * we need to flush and close pending writes to \\truenas\VirtualMachines
+             * before we shutdown the VM providing the SMB server
+             * otherwise a delay write error will occur, causing shutdown to be aborted.
+             * In this case, instead of shutting down, we'll be brought back to the login screen
+             **/
+            _logger.LogInformation("Flushing and closing open handles");
+            foreach (var path in _closeHandleItems)
+            {
+                _logger.LogInformation($" - path: {path.NameOrPath}");
+            }
+            _closeHandlesFactory.Create(new CloseOpenHandlesParams
+            {
+                DryRun = _opts.DryRun,
+                Paths = _closeHandleItems
+            }).Execute(state);
+
 
             _logger.LogInformation("Shutting down Critical VMs, sequentially");
             foreach (var vm in shutdownOrder.Where(itm => itm.Key < 0))

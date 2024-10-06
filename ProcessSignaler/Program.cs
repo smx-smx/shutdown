@@ -11,18 +11,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Windows.Win32;
 
-static bool TryTake(IEnumerator<string> it, [MaybeNullWhen(false)] out string arg)
-{
-    if (!it.MoveNext())
-    {
-        arg = null;
-        return false;
-    }
-
-    arg = it.Current;
-    return true;
-}
-
 var args_it = args.GetEnumerator();
 
 uint pid = 0;
