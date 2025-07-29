@@ -31,15 +31,18 @@ namespace Shutdown.Components
     public class DismountVolumesFactory
     {
         private ILoggerFactory _factory;
-        public DismountVolumesFactory(ILoggerFactory factory)
+        private readonly CloseOpenHandlesFactory _closeFactory;
+
+        public DismountVolumesFactory(ILoggerFactory factory, CloseOpenHandlesFactory closeFactory)
         {
             _factory = factory;
+            _closeFactory = closeFactory;
         }
 
         public DismountVolumes Create(DismountVolumesParams opts)
         {
             var logger = _factory.CreateLogger<DismountVolumes>();
-            return new DismountVolumes(opts, logger);
+            return new DismountVolumes(opts, logger, _closeFactory);
         }
     }
 
@@ -48,6 +51,7 @@ namespace Shutdown.Components
         public required string VolumeLetter { get; set; }
         public required bool Dismount { get; set; }
         public required bool OfflineDisks { get; set; }
+        public bool CloseHandles { get; set; } = true;
     }
 
     public class DismountVolumesParams
@@ -60,12 +64,14 @@ namespace Shutdown.Components
         private readonly HashSet<string> _offlinedVolumes;
         private readonly HashSet<uint> _offlinedDisks;
         private readonly Dictionary<string, HashSet<string>> _volumeToDisk;
+        private readonly CloseOpenHandlesFactory _closeFactory;
         private readonly ILogger<DismountVolumes> _logger;
         private readonly DismountVolumesParams _opts;
 
         public DismountVolumes(
             DismountVolumesParams opts,
-            ILogger<DismountVolumes> logger
+            ILogger<DismountVolumes> logger,
+            CloseOpenHandlesFactory closeFactory
         )
         {
             _opts = opts;
@@ -73,6 +79,7 @@ namespace Shutdown.Components
             _offlinedVolumes = new HashSet<string>();
             _offlinedDisks = new HashSet<uint>();
             _volumeToDisk = new Dictionary<string, HashSet<string>>();
+            _closeFactory = closeFactory;
         }
 
         private static SafeFileHandle OpenDisk(uint diskNumber)
@@ -105,21 +112,6 @@ namespace Shutdown.Components
                 throw new Win32Exception();
             }
             return hVolume;
-        }
-
-        private void CloseOpenHandles()
-        {
-            using var buf = Helpers.NtCallWithGrowableBuffer(
-                buf =>
-                {
-                    return NtQuerySystemInformation(
-                        (uint)SYSTEM_INFORMATION_CLASS.SystemHandleInformation,
-                        buf.Address,
-                        (uint)buf.Size,
-                        out var written
-                    );
-                });
-            Console.WriteLine(buf.Size);
         }
 
         private static HashSet<uint> GetDiskNumbersFromVolume(string volumeLetter)
@@ -302,7 +294,36 @@ namespace Shutdown.Components
                 ? diskNumbers
                 : new HashSet<uint>();
 
-            //LockVolume(hVolume);
+            const int MAX_LOCK_ATTEMPTS = 5;
+
+            for (int i = 0; i < MAX_LOCK_ATTEMPTS; i++)
+            {
+                try
+                {
+                    state.SetShutdownStatusMessage($"Locking volume: {volume.VolumeLetter} ({i}/{MAX_LOCK_ATTEMPTS})");
+                    /**
+                     * The system flushes all cached data to the volume before locking it.
+                     * For example, any data held in a lazy-write cache is written to the volume. 
+                     **/
+                    LockVolume(hVolume);
+                    break;
+                } catch (Win32Exception)
+                {
+                    if (volume.CloseHandles)
+                    {
+                        _closeFactory.Create(new CloseOpenHandlesParams
+                        {
+                            DryRun = false,
+                            Paths = [new CloseOpenHandlesItem {
+                                IsVolume = true,
+                                NameOrPath = volume.VolumeLetter,
+                                FlushObjects = true
+                            }]
+                        }).Execute(state);
+                    }
+                }
+            }
+
             if (doOffline)
             {
                 state.SetShutdownStatusMessage($"Offline volume: {volume.VolumeLetter}");

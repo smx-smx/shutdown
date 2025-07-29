@@ -50,25 +50,15 @@ namespace Shutdown
 
         private void AddVolume(string volumeName, VolumeOptions opts)
         {
-            var enable = opts.CloseHandles?.Enable ?? true;
-            if (enable)
-            {
-                _closeHandlesList.Add(new CloseOpenHandlesItem
-                {
-                    IsVolume = true,
-                    NameOrPath = volumeName,
-                    FlushObjects = opts.CloseHandles?.FlushObjects ?? false
-                });
-            }
-
-            enable = opts.Dismount?.Enable ?? true;
+            var enable = opts.Dismount?.Enable ?? true;
             if (enable)
             {
                 _dismountVolumesList.Add(new DismountVolumeItem
                 {
                     Dismount = enable,
                     VolumeLetter = volumeName,
-                    OfflineDisks = opts.OwningDisks?.Offline?.Enable ?? false
+                    OfflineDisks = opts.OwningDisks?.Offline?.Enable ?? false,
+                    CloseHandles = opts.CloseHandles?.Enable ?? true
                 });
             }
         }
