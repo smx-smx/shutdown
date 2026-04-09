@@ -280,6 +280,12 @@ namespace Shutdown.Components
       
         private bool FilterNtPath(string ntPath, string pathPrefix)
         {
+            // first, check if it's an absolute path prefix
+            if (ntPath.StartsWith(pathPrefix, StringComparison.CurrentCultureIgnoreCase))
+            {
+                return true;
+            }
+
             // remove any leading backslash from the prefix, since splitting `ntPath` will get rid of them too
             pathPrefix = pathPrefix.TrimStart('\\');
 
