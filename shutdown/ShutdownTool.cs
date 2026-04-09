@@ -12,6 +12,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Configuration;
+using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Win32.SafeHandles;
 using NReco.Logging.File;
@@ -140,27 +141,40 @@ class ShutdownTool
         }
 #endif
 
-
         var runNow = false;
         var shutdownMode = ShutdownMode.Shutdown;
+        var lockMode = false;
         var debugMode = false;
+        var verboseLevel = 0;
 
-        var args_it = args.GetEnumerator();
+        var args_it = args.AsEnumerable().GetEnumerator();
         while (args_it.MoveNext())
         {
             var res = true;
             var arg = args_it.Current;
             switch (arg)
             {
+                case "-test-handles":
+                    shutdownMode = ShutdownMode.TestCloseHandles;
+                    lockMode = true;
+                    runNow = true;
+                    break;
                 case "-now":
                     runNow = true;
                     break;
                 case "-pre":
-                    shutdownMode = ShutdownMode.PreShutdown;
+                    if (!lockMode)
+                    {
+                        shutdownMode = ShutdownMode.PreShutdown;
+                    }
                     break;
                 case "-debug":
                     debugMode = true;
                     break;
+            }
+            if (arg.StartsWith("-v"))
+            {
+                verboseLevel = arg.AsSpan().Count('v');
             }
 
             if (!res)
@@ -175,6 +189,23 @@ class ShutdownTool
         File.WriteAllText(pidFile, Process.GetCurrentProcess().Id.ToString());
 
         var builder = Host.CreateApplicationBuilder(args);
+
+        // load logging defaults from AppSettings.json
+        builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
+
+        var defaultLevel = builder.Configuration
+            .GetSection("Logging:LogLevel")
+            .GetValue("Default", LogLevel.Information);
+
+        // add verbosity, clamp to max verbose
+        defaultLevel = (LogLevel)Math.Max(
+            (int)LogLevel.Trace,
+            (int)defaultLevel - verboseLevel);
+        Console.WriteLine($"Log Level: {Enum.GetName(defaultLevel)}");
+
+        // configure verbosity
+        builder.Logging.AddFilter(level => level >= defaultLevel);
+
         builder.Services.AddLogging(log =>
         {
             var loggingSection = builder.Configuration.GetSection("Logging");
@@ -184,6 +215,7 @@ class ShutdownTool
                 {
                     return string.Format(fName, modeIdent);
                 };
+                opts.MinLevel = defaultLevel;
             });
         });
 
@@ -274,10 +306,9 @@ class ShutdownTool
             .CreateLogger<ShutdownTool>();
 
 
-
         foreach (var arg in args)
         {
-            mainLogger.LogDebug($"=> {arg}");
+            mainLogger.LogTrace($"=> {arg}");
         }
 
 
@@ -286,7 +317,6 @@ class ShutdownTool
         Helpers.EnablePrivilege(PInvoke.SE_IMPERSONATE_NAME);
         using var systemToken = ElevationService.ImpersonateSystem();
         Helpers.EnablePrivilege(PInvoke.SE_TCB_NAME); // for WinSta impersonation
-
 
         try
         {

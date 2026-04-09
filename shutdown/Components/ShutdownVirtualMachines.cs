@@ -404,6 +404,7 @@ namespace Shutdown.Components
 
                 foreach (var path in vmxPaths)
                 {
+                    // flush and close any remaining file in the VMX directory
                     _closeHandleItems.Add(new CloseOpenHandlesItem
                     {
                         IsVolume = false,

@@ -29,6 +29,8 @@ using static ShutdownLib.Ntdll;
 using System.IO.Pipes;
 using ShutdownLib;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
+using Smx.Winter;
 
 namespace Shutdown.Components
 {
@@ -189,69 +191,123 @@ namespace Shutdown.Components
             return new string(finfo.FileName.AsSpan((int)finfo.FileNameLength).ToArray());
         }
 
-        private bool CloseHandle(string handleName, HANDLE handle, uint dwProcessId, bool flush)
+        private bool FlushHandle(string handleName, HANDLE handle, uint dwProcessId)
         {
-            HANDLE syncHandle;
-            HANDLE dupHandle;
+            NtStatusCode status;
 
             if (dwProcessId == (uint)Process.GetCurrentProcess().Id)
             {
-                dupHandle = handle;
-                if (!NT_SUCCESS(NtFlushBuffersFile(handle, out _)))
+                if (!NT_SUCCESS(status=NtFlushBuffersFile(handle, out _)))
                 {
-                    _logger.LogError($"Sync failed: {handleName}");
-                }
-            } else
-            {
-                using var thisProc = PInvoke.GetCurrentProcess_SafeHandle();
-                using var hProc = PInvoke.OpenProcess_SafeHandle(
-                    PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE,
-                    false, dwProcessId
-                );
-                if (hProc.IsInvalid)
-                {
+                    _logger.LogError($"Sync failed (0x{(uint)status:X8}): {handleName}");
                     return false;
                 }
-                if (flush)
+                return true;
+            }
+
+            using var thisProc = PInvoke.GetCurrentProcess_SafeHandle();
+            using var hProc = PInvoke.OpenProcess_SafeHandle(
+                PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE,
+                false, dwProcessId
+            );
+            if (hProc.IsInvalid)
+            {
+                var procName = string.Empty;
+                try
                 {
-                    do
-                    {
-                        if (!NT_SUCCESS(NtDuplicateObject(
-                            hProc.ToHandle(),
-                            handle,
-                            thisProc.ToHandle(),
-                            out syncHandle,
-                            0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_SAME_ACCESS
-                        )))
-                        {
-                            _logger.LogError($"Cannot duplicate handle for sync: {handleName}");
-                        }
+                    procName = Process.GetProcessById((int)dwProcessId).ProcessName;
+                } catch (Exception) { }
+                _logger.LogError($"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
+                return false;
+            }
 
-                        if (!NT_SUCCESS(NtFlushBuffersFile(syncHandle, out _)))
-                        {
-                            _logger.LogError($"Flush failed: {handleName}");
-                        }
-
-                        // create an owned handle to auto-close it
-                        using var ownedSyncDup = new SafeNtHandle(syncHandle, true);
-                    } while (false);
-                }
-
-                if (!NT_SUCCESS(NtDuplicateObject(
+            if (!NT_SUCCESS(status=NtDuplicateObject(
                     hProc.ToHandle(),
                     handle,
                     thisProc.ToHandle(),
-                    out dupHandle,
-                    0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_CLOSE_SOURCE
+                    out var dupHandle,
+                    0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_SAME_ACCESS
                 )))
-                {
-                    return false;
-                }
+            {
+                _logger.LogError($"Cannot duplicate handle for sync: {handleName}");
+                return false;
             }
 
-            // create an owned handle to auto-close it
-            using var ownedDup = new SafeNtHandle(dupHandle, true);
+            if (!NT_SUCCESS(status=NtFlushBuffersFile(dupHandle, out _)))
+            {
+                _logger.LogError($"Flush failed (0x{(uint)status:X8}): {handleName}");
+                return false;
+            }
+            _logger.LogDebug($"Flushed: {handleName}");
             return true;
+        }
+
+        private bool CloseHandle(string handleName, HANDLE handle, uint dwProcessId)
+        {
+            NtStatusCode status;
+            using var thisProc = PInvoke.GetCurrentProcess_SafeHandle();
+            using var hProc = PInvoke.OpenProcess_SafeHandle(
+                PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE,
+                false, dwProcessId
+            );
+            if (hProc.IsInvalid)
+            {
+                var procName = string.Empty;
+                try
+                {
+                    procName = Process.GetProcessById((int)dwProcessId).ProcessName;
+                } catch (Exception) { }
+                _logger.LogError($"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
+                return false;
+            }
+
+            if (!NT_SUCCESS(status=NtDuplicateObject(
+                    hProc.ToHandle(),
+                    handle,
+                    thisProc.ToHandle(),
+                    out var dupHandle,
+                    0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_CLOSE_SOURCE
+                )))
+            {
+                _logger.LogError($"Cannot duplicate handle for sync (0x{(uint)status:X8}): {handleName}");
+                return false;
+            }
+
+            // convert to owned to auto-close our local copy on return
+            using var ownedSyncDup = new SafeNtHandle(dupHandle, true);
+            return true;
+        }
+      
+        private bool FilterNtPath(string ntPath, string pathPrefix)
+        {
+            // remove any leading backslash from the prefix, since splitting `ntPath` will get rid of them too
+            pathPrefix = pathPrefix.TrimStart('\\');
+
+            var parts = ntPath.Split('\\', 4);
+            if (parts.Length < 3) return false;
+            var marker = parts[0];
+            var root = parts[1];
+            if (marker != string.Empty) return false;
+            if (root != "Device") return false;
+
+            var deviceName = parts[2];
+            if (deviceName == "Mup"
+                || deviceName.StartsWith("HarddiskVolume"))
+            {
+                if (parts.Length < 4)
+                {
+                    // this is a handle to the device itself. don't close it because it might be important
+                    // (chkdsk? partition editing tools?)
+                    // although we're shutting down.. so all bets are off.
+                    return false;
+                }
+                var devicePath = parts[3];
+                if (devicePath.StartsWith(pathPrefix, StringComparison.CurrentCultureIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void CloseOpenHandles(string pathPrefix, bool flushObjects)
@@ -280,6 +336,7 @@ namespace Shutdown.Components
             var numHandles = ptr.Value.NumberOfHandles;
             var handles = ptr.Value.Handles;
 
+            var procs = Process.GetProcesses().ToDictionary(p => p.Id, p => p);
 
             for (var i = 0; i < numHandles; i++)
             {
@@ -291,70 +348,74 @@ namespace Shutdown.Components
 
                 var safeHandle = new SafeNtHandle(h.HandleValue, false);
 
-                _logger.LogTrace($"OBJECT: 0x{handles[i].Object:X}, HANDLE: 0x{handles[i].HandleValue:X}");
                 var ntName = _worker.GetName(handles, i);
+                _logger.LogTrace($"OBJECT: 0x{handles[i].Object:X}, HANDLE: 0x{handles[i].HandleValue:X}, NAME: \"{ntName ?? string.Empty}\"");
                 if (ntName == null) continue;
-
-                bool found = ntName.StartsWith(pathPrefix, StringComparison.InvariantCultureIgnoreCase);
-                if (!found)
-                {
-                    const string NT_DEVICE_MUP = @"\Device\Mup\";
-
-                    if (pathPrefix.StartsWith(@"\\")
-                        && ntName.StartsWith(NT_DEVICE_MUP, StringComparison.CurrentCultureIgnoreCase
-                    ))
-                    {
-                        found = ntName.Substring(NT_DEVICE_MUP.Length)
-                            .StartsWith(pathPrefix.Substring(2));
-                    }
-                }
-
-                if (!found)
-                {
-                    continue;
-                }
+                if (!FilterNtPath(ntName, pathPrefix)) continue;
 
                 var dryPrefix = _volumes.DryRun ? "[DRY] " : "";
-                _logger.LogDebug($"{dryPrefix}{h.UniqueProcessId}: {h.ObjectTypeIndex} - {h.HandleValue:X} - {ntName}");
 
-
-
-                if (_volumes.DryRun)
+                var procName = string.Empty;
+                if(procs.TryGetValue((int)h.UniqueProcessId, out var process))
                 {
-                    continue;
+                    procName = process.ProcessName;
                 }
+                _logger.LogDebug($"{dryPrefix}{h.UniqueProcessId} ({procName}): {h.ObjectTypeIndex} - {h.HandleValue:X} - {ntName}");
 
-                var flush = flushObjects && h.ObjectTypeIndex == ObjectTypeFile.TypeIndex;
-                CloseHandle(
-                    ntName,
-                    new HANDLE(h.HandleValue),
-                    (uint)h.UniqueProcessId,
-                    flush);
+                // we need to impersonate the process to make sure we can access the resource being flushed/closed
+                ElevationService.RunAsProcess((uint)h.UniqueProcessId, () =>
+                {
+                    // we can only flush files (and not directories)
+                    var flush = flushObjects && h.ObjectTypeIndex == ObjectTypeFile.TypeIndex;
+
+                    if (flush)
+                    {
+                        // but... Mup handles always report as file, so we must check them separately
+                        if (ntName.StartsWith(@"\Device\Mup\"))
+                        {
+                            var uncPath = @"\" + ntName.Substring(@"\Device\Mup".Length);
+                            var attrs = File.GetAttributes(uncPath);
+                            if (attrs.HasFlag(FileAttributes.Directory))
+                            {
+                                flush = false;
+                            }
+                        }
+                    }
+
+                    var handle = new HANDLE(h.HandleValue);
+
+                    if (flush)
+                    {
+                        FlushHandle(ntName, handle, (uint)h.UniqueProcessId);
+                    }
+
+                    if (_volumes.DryRun)
+                    {
+                        return;
+                    }
+                    CloseHandle(ntName, handle, (uint)h.UniqueProcessId);
+                });
             }
         }
 
         public void Execute(ShutdownState state)
         {
             _worker.Start();
-            foreach (var vol in _volumes.Paths)
+            foreach (var path in _volumes.Paths)
             {
-                if (vol.IsVolume)
+                var withFlush = (path.FlushObjects) ? "Flushing+" : string.Empty;
+
+                if (path.IsVolume)
                 {
-                    _logger.LogInformation($"Closing handles for volume: {vol.NameOrPath}");
-                    state.SetShutdownStatusMessage($"Closing volume handles: {vol.NameOrPath}");
-                    var bufName = Helpers.Win32CallWithGrowableBuffer((buf) =>
-                    {
-                        var maxChars = (uint)(buf.Size / sizeof(char));
-                        var numChars = PInvoke.QueryDosDevice(vol.NameOrPath, buf.ToPWSTR(), maxChars);
-                        return (uint)Marshal.GetLastPInvokeError();
-                    });
-                    var volumePath = bufName.ToPWSTR().ToString();
-                    CloseOpenHandles(volumePath, vol.FlushObjects);
+                    _logger.LogInformation($"{withFlush}Closing handles for volume: {path.NameOrPath}");
+                    state.SetShutdownStatusMessage($"Closing volume handles: {path.NameOrPath}");
+                    var volumePath = Helpers.QueryDosDevice(path.NameOrPath);
+                    CloseOpenHandles(volumePath, path.FlushObjects);
                 } else
                 {
-                    _logger.LogInformation($"Closing handles for path: {vol.NameOrPath}");
-                    state.SetShutdownStatusMessage($"Closing path handles: {vol.NameOrPath}");
-                    CloseOpenHandles(vol.NameOrPath, vol.FlushObjects);
+                    _logger.LogInformation($"{withFlush}Closing handles for path: {path.NameOrPath}");
+                    state.SetShutdownStatusMessage($"Closing path handles: {path.NameOrPath}");
+                    CloseOpenHandles(path.NameOrPath, path.FlushObjects);
                 }
             }
         }

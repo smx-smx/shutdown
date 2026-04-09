@@ -12,6 +12,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Shutdown.Components;
 using ShutdownLib;
 
@@ -30,19 +31,22 @@ namespace Shutdown
         private IList<IAction> _actions;
         private ShutdownOptions _options;
 
-        private ICollection<CloseOpenHandlesItem> _closeHandlesList;
-        private ICollection<DismountVolumeItem> _dismountVolumesList;
+        private readonly ILogger<ShutdownActionsBuilder> _logger;
+        private readonly ICollection<CloseOpenHandlesItem> _closeHandlesList;
+        private readonly ICollection<DismountVolumeItem> _dismountVolumesList;
 
         private ShutdownActionFactories _factories;
 
         public ShutdownActionsBuilder(
             ShutdownOptions options,
-            ShutdownActionFactories factories
+            ShutdownActionFactories factories,
+            ILogger<ShutdownActionsBuilder> logger
         )
         {
             _factories = factories;
             _actions = new List<IAction>();
             _options = options;
+            _logger = logger;
 
             _closeHandlesList = new List<CloseOpenHandlesItem>();
             _dismountVolumesList = new List<DismountVolumeItem>();
@@ -93,38 +97,43 @@ namespace Shutdown
             _actions.Add(shutdownVms);
         }
 
-        private void BuildCloseHandlePaths()
+        private void BuildCloseHandlesAction(bool dryRunOverride = false)
         {
-            foreach (var pathSpec in _options.CloseHandles)
+            foreach (var pathSpec in _options.CloseHandles.Paths)
             {
                 if (!pathSpec.Value.Enable) continue;
+                _logger.LogInformation($"Adding path: {pathSpec.Key}");
+                
                 _closeHandlesList.Add(new CloseOpenHandlesItem
                 {
                     IsVolume = false,
-                    NameOrPath = pathSpec.Key
+                    NameOrPath = pathSpec.Key,
+                    FlushObjects = pathSpec.Value.FlushObjects,
                 });
             }
+
+            var closeHandles = _factories.closeOpenHandles.Create(new CloseOpenHandlesParams
+            {
+                DryRun = _options.DryRun || dryRunOverride,
+                Paths = _closeHandlesList
+            });
+            _actions.Add(closeHandles);
+
         }
 
-        private void BuildVolumes()
+        private void BuildVolumeDismountAction()
         {
             if (_options.Volumes == null) return;
             foreach (var volume in _options.Volumes)
             {
                 AddVolume(volume.Key, volume.Value);
             }
-
-            var closeHandles = _factories.closeOpenHandles.Create(new CloseOpenHandlesParams
-            {
-                DryRun = _options.DryRun,
-                Paths = _closeHandlesList
-            });
+            
             var dismountVolumes = _factories.dismountVolumes.Create(new DismountVolumesParams
             {
                 Volumes = _dismountVolumesList
             });
 
-            _actions.Add(closeHandles);
             _actions.Add(dismountVolumes);
         }
 
@@ -152,16 +161,23 @@ namespace Shutdown
 
         public ICollection<IAction> Build(ShutdownMode mode)
         {
-            if (mode == ShutdownMode.PreShutdown)
+            switch (mode)
             {
-                BuildProcessKiller();
-            } else
-            {
-                BuildCloseHandlePaths();
-                BuildVolumes();
-                BuildVirtualMachines(ShutdownVirtualMachinesFlags.Normal);
-                BuildIscsiTargets();
-                BuildVirtualMachines(ShutdownVirtualMachinesFlags.Critical);
+                case ShutdownMode.PreShutdown:
+                    BuildProcessKiller();
+                    break;
+                case ShutdownMode.Shutdown:
+                    BuildCloseHandlesAction();
+                    BuildVolumeDismountAction();
+                    BuildVirtualMachines(ShutdownVirtualMachinesFlags.Normal);
+                    BuildIscsiTargets();
+                    BuildVirtualMachines(ShutdownVirtualMachinesFlags.Critical);
+                    break;
+                case ShutdownMode.TestCloseHandles:
+                    BuildCloseHandlesAction(dryRunOverride: true);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unknown Shutdown Mode: {Enum.GetName(mode)}");
             }
             return _actions;
         }

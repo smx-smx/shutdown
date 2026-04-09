@@ -7,18 +7,11 @@
  */
 #endregion
 using ShutdownLib;
-using Smx.SharpIO;
 using Smx.SharpIO.Extensions;
 using Smx.Winter;
-using System;
-using System.Collections.Generic;
 using System.IO.Pipes;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 using Windows.Win32;
-using static ShutdownLib.Ntdll;
 
 namespace worker
 {

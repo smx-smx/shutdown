@@ -372,5 +372,17 @@ namespace ShutdownLib
                 }
             }
         }
+
+        public static string QueryDosDevice(string volumeName)
+        {
+            var bufName = Win32CallWithGrowableBuffer((buf) =>
+            {
+                var maxChars = (uint)(buf.Size / sizeof(char));
+                var numChars = PInvoke.QueryDosDevice(volumeName, buf.ToPWSTR(), maxChars);
+                return (uint)Marshal.GetLastPInvokeError();
+            });
+            var volumePath = bufName.ToPWSTR().ToString();
+            return volumePath;
+        }
     }
 }

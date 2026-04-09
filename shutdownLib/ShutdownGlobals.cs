@@ -24,7 +24,11 @@ public enum ShutdownMode
     /// <summary>
     /// Shutdown actions
     /// </summary>
-    Shutdown
+    Shutdown,
+    /// <summary>
+    /// Test Handles that would be closed (dry run)
+    /// </summary>
+    TestCloseHandles
 }
 
 public enum ShutdownProgramType

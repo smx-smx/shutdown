@@ -22,7 +22,7 @@ namespace Shutdown
 
     public class CloseHandlePathOptions
     {
-        public bool Enable { get; set; }
+        public Dictionary<string, CloseHandlesOptions> Paths { get; set; } = new Dictionary<string, CloseHandlesOptions>();
     }
 
     public class CloseHandlesOptions : ActionOptions
@@ -113,7 +113,7 @@ namespace Shutdown
     public class ShutdownOptions
     {
         public bool DryRun { get; set; } = false;
-        public Dictionary<string, CloseHandlePathOptions> CloseHandles { get; set; } = new Dictionary<string, CloseHandlePathOptions>();
+        public CloseHandlePathOptions CloseHandles { get; set; } = new CloseHandlePathOptions();
         public Dictionary<string, VolumeOptions> Volumes { get; set; } = new Dictionary<string, VolumeOptions>();
         public VirtualMachineOptions? VirtualMachines { get; set; }
         public KillProcessesOptions? KillProcesses { get; set; }
