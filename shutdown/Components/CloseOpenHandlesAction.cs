@@ -191,7 +191,15 @@ namespace Shutdown.Components
             return new string(finfo.FileName.AsSpan((int)finfo.FileNameLength).ToArray());
         }
 
-        private bool FlushHandle(string handleName, HANDLE handle, uint dwProcessId)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="handleName"></param>
+        /// <param name="handle"></param>
+        /// <param name="dwProcessId"></param>
+        /// <returns></returns>
+        /// <remarks>This function MUST be static, since it can't log (the impersonated process might not have access to the log file)</remarks>
+        private static (bool, string) FlushHandle(string handleName, HANDLE handle, uint dwProcessId)
         {
             NtStatusCode status;
 
@@ -199,10 +207,9 @@ namespace Shutdown.Components
             {
                 if (!NT_SUCCESS(status=NtFlushBuffersFile(handle, out _)))
                 {
-                    _logger.LogError($"Sync failed (0x{(uint)status:X8}): {handleName}");
-                    return false;
+                    return (false, $"Sync failed (0x{(uint)status:X8}): {handleName}");
                 }
-                return true;
+                return (true, string.Empty);
             }
 
             using var thisProc = PInvoke.GetCurrentProcess_SafeHandle();
@@ -217,8 +224,7 @@ namespace Shutdown.Components
                 {
                     procName = Process.GetProcessById((int)dwProcessId).ProcessName;
                 } catch (Exception) { }
-                _logger.LogError($"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
-                return false;
+                return (false, $"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
             }
 
             if (!NT_SUCCESS(status=NtDuplicateObject(
@@ -229,20 +235,25 @@ namespace Shutdown.Components
                     0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_SAME_ACCESS
                 )))
             {
-                _logger.LogError($"Cannot duplicate handle for sync: {handleName}");
-                return false;
+                return (false, $"Cannot duplicate handle for sync: {handleName}");
             }
 
             if (!NT_SUCCESS(status=NtFlushBuffersFile(dupHandle, out _)))
             {
-                _logger.LogError($"Flush failed (0x{(uint)status:X8}): {handleName}");
-                return false;
+                return (false, $"Flush failed (0x{(uint)status:X8}): {handleName}");
             }
-            _logger.LogDebug($"Flushed: {handleName}");
-            return true;
+            return (true, $"Flushed: {handleName}");
         }
 
-        private bool CloseHandle(string handleName, HANDLE handle, uint dwProcessId)
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="handleName"></param>
+        /// <param name="handle"></param>
+        /// <param name="dwProcessId"></param>
+        /// <returns></returns>
+        /// <remarks>This function MUST be static, since it can't log (the impersonated process might not have access to the log file)</remarks>
+        private (bool, string) CloseHandle(string handleName, HANDLE handle, uint dwProcessId)
         {
             NtStatusCode status;
             using var thisProc = PInvoke.GetCurrentProcess_SafeHandle();
@@ -257,8 +268,7 @@ namespace Shutdown.Components
                 {
                     procName = Process.GetProcessById((int)dwProcessId).ProcessName;
                 } catch (Exception) { }
-                _logger.LogError($"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
-                return false;
+                return (false, $"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
             }
 
             if (!NT_SUCCESS(status=NtDuplicateObject(
@@ -269,13 +279,12 @@ namespace Shutdown.Components
                     0, 0, (uint)DUPLICATE_HANDLE_OPTIONS.DUPLICATE_CLOSE_SOURCE
                 )))
             {
-                _logger.LogError($"Cannot duplicate handle for sync (0x{(uint)status:X8}): {handleName}");
-                return false;
+                return (false, $"Cannot duplicate handle for sync (0x{(uint)status:X8}): {handleName}");
             }
 
             // convert to owned to auto-close our local copy on return
             using var ownedSyncDup = new SafeNtHandle(dupHandle, true);
-            return true;
+            return (true, string.Empty);
         }
       
         private bool FilterNtPath(string ntPath, string pathPrefix)
@@ -368,39 +377,57 @@ namespace Shutdown.Components
                 }
                 _logger.LogDebug($"{dryPrefix}{h.UniqueProcessId} ({procName}): {h.ObjectTypeIndex} - {h.HandleValue:X} - {ntName}");
 
-                // we need to impersonate the process to make sure we can access the resource being flushed/closed
-                ElevationService.RunAsProcess((uint)h.UniqueProcessId, () =>
-                {
-                    // we can only flush files (and not directories)
-                    var flush = flushObjects && h.ObjectTypeIndex == ObjectTypeFile.TypeIndex;
+                string? flushMessage = null;
+                string? closeMessage = null;
 
-                    if (flush)
+                // impersonate TI. we'll need it in case we want to impersonate svchost
+                using (var tiHandle = ElevationService.ImpersonateTrustedInstaller())
+                {
+                    // we need to impersonate the process to make sure we can access the resource being flushed/closed
+                    ElevationService.RunAsProcess((uint)h.UniqueProcessId, () =>
                     {
-                        // but... Mup handles always report as file, so we must check them separately
-                        if (ntName.StartsWith(@"\Device\Mup\"))
+                        // we can only flush files (and not directories)
+                        var flush = flushObjects && h.ObjectTypeIndex == ObjectTypeFile.TypeIndex;
+
+                        if (flush)
                         {
-                            var uncPath = @"\" + ntName.Substring(@"\Device\Mup".Length);
-                            var attrs = File.GetAttributes(uncPath);
-                            if (attrs.HasFlag(FileAttributes.Directory))
+                            // but... Mup handles always report as file, so we must check them separately
+                            if (ntName.StartsWith(@"\Device\Mup\"))
                             {
-                                flush = false;
+                                var uncPath = @"\" + ntName.Substring(@"\Device\Mup".Length);
+                                var attrs = File.GetAttributes(uncPath);
+                                if (attrs.HasFlag(FileAttributes.Directory))
+                                {
+                                    flush = false;
+                                }
                             }
                         }
-                    }
 
-                    var handle = new HANDLE(h.HandleValue);
+                        var handle = new HANDLE(h.HandleValue);
 
-                    if (flush)
-                    {
-                        FlushHandle(ntName, handle, (uint)h.UniqueProcessId);
-                    }
+                        if (flush)
+                        {
+                            var flushRes = FlushHandle(ntName, handle, (uint)h.UniqueProcessId);
+                            flushMessage = flushRes.Item2;
+                        }
 
-                    if (_volumes.DryRun)
-                    {
-                        return;
-                    }
-                    CloseHandle(ntName, handle, (uint)h.UniqueProcessId);
-                });
+                        if (_volumes.DryRun)
+                        {
+                            return;
+                        }
+                        var closeRes = CloseHandle(ntName, handle, (uint)h.UniqueProcessId);
+                        closeMessage = closeRes.Item2;
+                    });
+                }
+
+                if(!string.IsNullOrEmpty(flushMessage))
+                {
+                    _logger.LogInformation(flushMessage);
+                }
+                if (!string.IsNullOrEmpty(closeMessage))
+                {
+                    _logger.LogInformation(closeMessage);
+                }
             }
         }
 
