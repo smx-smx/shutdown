@@ -103,7 +103,7 @@ namespace Shutdown
             {
                 if (!pathSpec.Value.Enable) continue;
                 _logger.LogInformation($"Adding path: {pathSpec.Key}");
-                
+
                 _closeHandlesList.Add(new CloseOpenHandlesItem
                 {
                     IsVolume = false,
@@ -128,7 +128,7 @@ namespace Shutdown
             {
                 AddVolume(volume.Key, volume.Value);
             }
-            
+
             var dismountVolumes = _factories.dismountVolumes.Create(new DismountVolumesParams
             {
                 Volumes = _dismountVolumesList

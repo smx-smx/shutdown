@@ -118,7 +118,6 @@ namespace Shutdown
         public VirtualMachineOptions? VirtualMachines { get; set; }
         public KillProcessesOptions? KillProcesses { get; set; }
         public Dictionary<string, IscsiTargetOptions>? IscsiTargets { get; set; }
-
     }
 
     public class ShutdownSettingsRoot

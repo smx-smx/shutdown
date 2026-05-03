@@ -6,30 +6,17 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 #endregion
-using Microsoft.Win32.SafeHandles;
-using Smx.SharpIO.Extensions;
 using Smx.SharpIO.Memory;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Linq;
-using System.Net.Http.Headers;
-using System.Runtime;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using System.Xml.Linq;
 using Windows.Win32;
 using Windows.Win32.Foundation;
-using Windows.Win32.Security;
 using Windows.Win32.System.Threading;
 using Windows.Win32.Storage.FileSystem;
 using static ShutdownLib.Ntdll;
-using System.IO.Pipes;
 using ShutdownLib;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Configuration;
 using Smx.Winter;
 
 namespace Shutdown.Components
@@ -205,7 +192,7 @@ namespace Shutdown.Components
 
             if (dwProcessId == (uint)Process.GetCurrentProcess().Id)
             {
-                if (!NT_SUCCESS(status=NtFlushBuffersFile(handle, out _)))
+                if (!NT_SUCCESS(status = NtFlushBuffersFile(handle, out _)))
                 {
                     return (false, $"Sync failed (0x{(uint)status:X8}): {handleName}");
                 }
@@ -223,11 +210,12 @@ namespace Shutdown.Components
                 try
                 {
                     procName = Process.GetProcessById((int)dwProcessId).ProcessName;
-                } catch (Exception) { }
+                }
+                catch (Exception) { }
                 return (false, $"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
             }
 
-            if (!NT_SUCCESS(status=NtDuplicateObject(
+            if (!NT_SUCCESS(status = NtDuplicateObject(
                     hProc.ToHandle(),
                     handle,
                     thisProc.ToHandle(),
@@ -238,7 +226,7 @@ namespace Shutdown.Components
                 return (false, $"Cannot duplicate handle for sync: {handleName}");
             }
 
-            if (!NT_SUCCESS(status=NtFlushBuffersFile(dupHandle, out _)))
+            if (!NT_SUCCESS(status = NtFlushBuffersFile(dupHandle, out _)))
             {
                 return (false, $"Flush failed (0x{(uint)status:X8}): {handleName}");
             }
@@ -267,11 +255,12 @@ namespace Shutdown.Components
                 try
                 {
                     procName = Process.GetProcessById((int)dwProcessId).ProcessName;
-                } catch (Exception) { }
+                }
+                catch (Exception) { }
                 return (false, $"Sync failed: cannot Open process with ID {dwProcessId} ({procName})");
             }
 
-            if (!NT_SUCCESS(status=NtDuplicateObject(
+            if (!NT_SUCCESS(status = NtDuplicateObject(
                     hProc.ToHandle(),
                     handle,
                     thisProc.ToHandle(),
@@ -286,7 +275,7 @@ namespace Shutdown.Components
             using var ownedSyncDup = new SafeNtHandle(dupHandle, true);
             return (true, string.Empty);
         }
-      
+
         private bool FilterNtPath(string ntPath, string pathPrefix)
         {
             // first, check if it's an absolute path prefix
@@ -353,6 +342,8 @@ namespace Shutdown.Components
 
             var procs = Process.GetProcesses().ToDictionary(p => p.Id, p => p);
 
+            var myPid = (uint)Process.GetCurrentProcess().Id;
+
             for (var i = 0; i < numHandles; i++)
             {
                 var h = handles[i];
@@ -368,10 +359,13 @@ namespace Shutdown.Components
                 if (ntName == null) continue;
                 if (!FilterNtPath(ntName, pathPrefix)) continue;
 
+                // skip handles owned by ourselves
+                if (h.UniqueProcessId == myPid) continue;
+
                 var dryPrefix = _volumes.DryRun ? "[DRY] " : "";
 
                 var procName = string.Empty;
-                if(procs.TryGetValue((int)h.UniqueProcessId, out var process))
+                if (procs.TryGetValue((int)h.UniqueProcessId, out var process))
                 {
                     procName = process.ProcessName;
                 }
@@ -420,7 +414,7 @@ namespace Shutdown.Components
                     });
                 }
 
-                if(!string.IsNullOrEmpty(flushMessage))
+                if (!string.IsNullOrEmpty(flushMessage))
                 {
                     _logger.LogInformation(flushMessage);
                 }
@@ -444,7 +438,8 @@ namespace Shutdown.Components
                     state.SetShutdownStatusMessage($"Closing volume handles: {path.NameOrPath}");
                     var volumePath = Helpers.QueryDosDevice(path.NameOrPath);
                     CloseOpenHandles(volumePath, path.FlushObjects);
-                } else
+                }
+                else
                 {
                     _logger.LogInformation($"{withFlush}Closing handles for path: {path.NameOrPath}");
                     state.SetShutdownStatusMessage($"Closing path handles: {path.NameOrPath}");

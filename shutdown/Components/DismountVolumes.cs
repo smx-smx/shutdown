@@ -9,22 +9,12 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
 using ShutdownLib;
-using Smx.SharpIO.Memory;
-using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.ComponentModel;
-using System.Diagnostics.CodeAnalysis;
-using System.Linq;
-using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 using Windows.Win32;
 using Windows.Win32.Storage.FileSystem;
 using Windows.Win32.System.Ioctl;
-using static ShutdownLib.Ntdll;
 
 namespace Shutdown.Components
 {
@@ -300,6 +290,7 @@ namespace Shutdown.Components
             {
                 try
                 {
+                    _logger.LogInformation($"Locking volume: {volume.VolumeLetter} ({i}/{MAX_LOCK_ATTEMPTS})");
                     state.SetShutdownStatusMessage($"Locking volume: {volume.VolumeLetter} ({i}/{MAX_LOCK_ATTEMPTS})");
                     /**
                      * The system flushes all cached data to the volume before locking it.
@@ -307,10 +298,11 @@ namespace Shutdown.Components
                      **/
                     LockVolume(hVolume);
                     break;
-                } catch (Win32Exception)
+                } catch (Win32Exception ex)
                 {
                     if (volume.CloseHandles)
                     {
+                        _logger.LogError(ex, "LockVolume failed, closing handles");
                         _closeFactory.Create(new CloseOpenHandlesParams
                         {
                             DryRun = false,
